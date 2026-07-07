@@ -1,0 +1,216 @@
+﻿services:
+  postgres:
+    image: postgres:15
+    container_name: myleague-airflow-postgres
+    environment:
+      POSTGRES_USER: airflow
+      POSTGRES_PASSWORD: airflow
+      POSTGRES_DB: airflow
+    ports:
+      - "5432:5432"
+    volumes:
+      - airflow_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U airflow -d airflow"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+
+  airflow:
+    image: apache/airflow:3.2.2
+    container_name: myleague-airflow
+    env_file:
+      - .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+    environment:
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+      AIRFLOW__CORE__AUTH_MANAGER: airflow.providers.fab.auth_manager.fab_auth_manager.FabAuthManager
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres:5432/airflow
+      AIRFLOW__CORE__EXECUTION_API_SERVER_URL: http://localhost:8080/execution/
+      AIRFLOW__API__SECRET_KEY: ${AIRFLOW_API_SECRET_KEY:-dev-secret-key}
+      AIRFLOW__API_AUTH__JWT_SECRET: ${AIRFLOW_API_AUTH_JWT_SECRET:-dev-airflow-jwt-secret-change-me-64-bytes-minimum-for-local-development-2026}
+      AIRFLOW__SCHEDULER__ENABLE_HEALTH_CHECK: "true"
+      PYTHONPATH: /opt/airflow
+      MINIO_ENDPOINT_URL: http://minio:9000
+      MINIO_BUCKET: ${MINIO_BUCKET:-myleague-data}
+      AWS_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-minioadmin}
+      AWS_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:-minioadmin}
+      AWS_DEFAULT_REGION: eu-west-3
+      GOLD_POSTGRES_HOST: gold-postgres
+      GOLD_POSTGRES_PORT: 5432
+      GOLD_POSTGRES_USER: ${GOLD_POSTGRES_USER:-gold}
+      GOLD_POSTGRES_PASSWORD: ${GOLD_POSTGRES_PASSWORD:-gold}
+      GOLD_POSTGRES_DB: ${GOLD_POSTGRES_DB:-gold}
+      RIOT_API_KEY: ${RIOT_API_KEY}
+      RIOT_EUW_LOOKBACK_DAYS: ${RIOT_EUW_LOOKBACK_DAYS:-7}
+      RIOT_EUW_MAX_PLAYERS: ${RIOT_EUW_MAX_PLAYERS:-25}
+      RIOT_EUW_MATCHES_PER_PLAYER: ${RIOT_EUW_MATCHES_PER_PLAYER:-10}
+      RIOT_EUW_MAX_MATCHES_PER_RUN: ${RIOT_EUW_MAX_MATCHES_PER_RUN:-250}
+      _PIP_ADDITIONAL_REQUIREMENTS: ${_PIP_ADDITIONAL_REQUIREMENTS:-pandas scikit-learn dbt-postgres boto3 psycopg2-binary}
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./airflow/dags:/opt/airflow/dags
+      - ./airflow/logs:/opt/airflow/logs
+      - ./airflow/plugins:/opt/airflow/plugins
+      - ./jobs:/opt/airflow/jobs
+      - ./data:/opt/airflow/data
+      - ./dbt:/opt/airflow/dbt
+      - ./artifacts:/opt/airflow/artifacts
+    user: "${AIRFLOW_UID:-50000}:0"
+    command:
+      - bash
+      - -c
+      - |
+        airflow db migrate
+        airflow fab-db migrate
+        airflow users create \
+          --username "$${AIRFLOW_ADMIN_USERNAME:-admin}" \
+          --password "$${AIRFLOW_ADMIN_PASSWORD:-admin}" \
+          --firstname "$${AIRFLOW_ADMIN_FIRSTNAME:-Admin}" \
+          --lastname "$${AIRFLOW_ADMIN_LASTNAME:-User}" \
+          --role Admin \
+          --email "$${AIRFLOW_ADMIN_EMAIL:-admin@example.com}" || true
+        airflow dag-processor &
+        airflow scheduler &
+        exec airflow api-server
+    restart: unless-stopped
+
+  minio:
+    image: minio/minio:RELEASE.2025-04-22T22-12-26Z
+    container_name: myleague-minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+
+  minio-init:
+    image: minio/mc:RELEASE.2025-04-16T18-13-26Z
+    container_name: myleague-minio-init
+    depends_on:
+      minio:
+        condition: service_healthy
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
+      MINIO_BUCKET: ${MINIO_BUCKET:-myleague-data}
+    entrypoint: /bin/sh
+    command:
+      - -c
+      - |
+        set -e
+        mc alias set local http://minio:9000 "$${MINIO_ROOT_USER}" "$${MINIO_ROOT_PASSWORD}"
+        mc mb --ignore-existing "local/$${MINIO_BUCKET}"
+        touch /tmp/.keep
+        for path in \
+          bronze/datadragon/versions \
+          bronze/datadragon/champions/locale=fr_FR \
+          bronze/datadragon/champion_details/locale=fr_FR \
+          bronze/datadragon/items/locale=fr_FR \
+          bronze/datadragon/summoner_spells/locale=fr_FR \
+          bronze/datadragon/runes \
+          bronze/riot/region=euw1/ranked_entries \
+          bronze/riot/region=euw1/summoners \
+          bronze/riot/region=euw1/match_ids \
+          bronze/riot/region=euw1/matches \
+          bronze/riot/region=euw1/timelines \
+          bronze/riot/region=euw1/manifests \
+          bronze/leaguepedia/players \
+          bronze/leaguepedia/teams \
+          bronze/leaguepedia/tournaments \
+          bronze/leaguepedia/rosters \
+          bronze/leaguepedia/matches \
+          bronze/internal/players \
+          bronze/internal/teams \
+          bronze/internal/scrims
+        do
+          mc cp /tmp/.keep "local/$${MINIO_BUCKET}/$${path}/.keep"
+        done
+    restart: "no"
+
+  gold-postgres:
+    image: postgres:15
+    container_name: myleague-gold-postgres
+    environment:
+      POSTGRES_USER: ${GOLD_POSTGRES_USER:-gold}
+      POSTGRES_PASSWORD: ${GOLD_POSTGRES_PASSWORD:-gold}
+      POSTGRES_DB: ${GOLD_POSTGRES_DB:-gold}
+    ports:
+      - "5433:5432"
+    volumes:
+      - gold_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U gold -d gold"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+
+  dbt:
+    image: ghcr.io/dbt-labs/dbt-postgres:latest
+    container_name: myleague-dbt
+    working_dir: /usr/app
+    environment:
+      DBT_PROFILES_DIR: /root/.dbt
+      GOLD_POSTGRES_HOST: gold-postgres
+      GOLD_POSTGRES_PORT: 5432
+      GOLD_POSTGRES_USER: ${GOLD_POSTGRES_USER:-gold}
+      GOLD_POSTGRES_PASSWORD: ${GOLD_POSTGRES_PASSWORD:-gold}
+      GOLD_POSTGRES_DB: ${GOLD_POSTGRES_DB:-gold}
+    volumes:
+      - ./dbt:/usr/app
+      - ./dbt/profiles:/root/.dbt
+    depends_on:
+      gold-postgres:
+        condition: service_healthy
+    entrypoint: ["tail", "-f", "/dev/null"]
+
+  grafana:
+    image: grafana/grafana-oss:11.5.2
+    container_name: myleague-grafana
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+    ports:
+      - "3000:3000"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning
+    depends_on:
+      gold-postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  airflow_postgres_data:
+  gold_postgres_data:
+  minio_data:
+  grafana_data:
+
+
+
+
+
+
+
+
