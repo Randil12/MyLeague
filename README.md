@@ -50,6 +50,29 @@ Architecture en médaillon : **bronze** (JSON bruts dans MinIO, unique zone bron
 | Leaguepedia | ELT | Données e-sport pro (tournois, équipes, picks/bans par patch) via l'API Cargo. Permet la comparaison méta pro vs solo queue. |
 | CSV internes | ETL | Validation/nettoyage indispensables avant chargement. *(à venir)* |
 
+```mermaid
+flowchart TB
+    subgraph ETL["FLUX ETL — Data Dragon (référentiel : faible volume, schéma stable)"]
+        direction LR
+        E1["1 — EXTRACT<br/>API Data Dragon<br/>JSON champions, objets,<br/>sorts, runes"]
+        E2["2 — TRANSFORM<br/>Python : typage,<br/>aplatissement, extraction<br/>de colonnes"]
+        E3["3 — LOAD<br/>reference.dim_champion<br/>dim_item, dim_rune,<br/>dim_summoner_spell"]
+        E1 --> E2 --> E3
+    end
+
+    subgraph ELT["FLUX ELT — Riot & Leaguepedia (volumineux : schéma évolutif à chaque patch)"]
+        direction LR
+        L1["1 — EXTRACT<br/>API Riot match-v5<br/>JSON matchs, timelines"]
+        L2["2 — LOAD<br/>bronze MinIO puis<br/>raw.riot_matches<br/>(JSONB brut, tel quel)"]
+        L3["3 — TRANSFORM<br/>dbt (SQL) : staging →<br/>intermediate → gold<br/>+ tests de qualité"]
+        L1 --> L2 --> L3
+    end
+
+    ETL ~~~ ELT
+```
+
+La différence tient à la place du T : en **ETL**, la donnée est transformée *avant* d'entrer dans l'entrepôt (adapté à un référentiel stable et léger) ; en **ELT**, la donnée brute entre d'abord, et la transformation SQL se rejoue à volonté sur tout l'historique sans rappeler l'API (décisif sous contrainte de quotas).
+
 ## Composants
 
 | Service | Rôle | Accès local |
