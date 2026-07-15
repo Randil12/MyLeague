@@ -9,63 +9,35 @@ Projet de fin d'études (RNCP 39586 — Ingénieur en science des données).
 ## Architecture
 
 ```mermaid
-flowchart LR
-    subgraph SRC["Sources externes"]
-        RIOT["Riot API<br/>match-v5 · timelines · league-v4<br/>spectator-v5 · account-v1 · mastery-v4"]
-        DD["Data Dragon<br/>champions · objets · sorts · runes"]
-        LP["Leaguepedia (Cargo)<br/>tournois · équipes · parties pro"]
-        PN["Notes de patch officielles<br/>(web scraping)"]
-    end
+flowchart TB
+    SRC["SOURCES EXTERNES<br/>Riot API — Data Dragon — Leaguepedia — Notes de patch"]
+    AF["APACHE AIRFLOW<br/>7 pipelines planifiés (détail ci-dessous)"]
+    MINIO["MINIO — DATA LAKE<br/>Zone bronze : JSON bruts partitionnés, source de vérité"]
+    WH["POSTGRESQL — ENTREPÔT<br/>Schémas raw + reference : données chargées"]
+    GOLD["POSTGRESQL — GOLD<br/>Tables d'analyse : méta, presence, builds, méta pro"]
+    VIZ["RESTITUTION — lecture seule (rôle data_analyst)<br/>Grafana (dashboards) — Streamlit (application coachs)"]
+    AUD["AUDIT<br/>Traçabilité de<br/>chaque exécution"]
 
-    subgraph AF["Apache Airflow — 7 DAGs"]
-        ETL["datadragon_ingestion — ETL"]
-        ELT["riot_euw_ingestion — ELT"]
-        LPI["leaguepedia_ingestion — ELT"]
-        PNS["patch_notes_scraping"]
-        LIVE["riot_live_spectator — micro-batch 30 min"]
-        ACA["riot_academy_tracking"]
-        DBT["dbt_transform — T de l'ELT"]
-    end
-
-    MINIO[("MinIO — data lake<br/>zone bronze unique<br/>JSON bruts partitionnés")]
-
-    subgraph PG["PostgreSQL — entrepôt"]
-        RAW[("raw / reference")]
-        GOLD[("staging → intermediate → gold<br/>(construits par dbt)")]
-        AUDIT[("audit<br/>traçabilité des runs")]
-    end
-
-    subgraph EXPO["Exposition — rôle data_analyst (lecture seule)"]
-        GRAF["Grafana<br/>dashboards méta + supervision"]
-        ST["Streamlit<br/>application coachs"]
-    end
-
-    RIOT --> ELT
-    RIOT --> LIVE
-    RIOT --> ACA
-    DD --> ETL
-    LP --> LPI
-    PN --> PNS
-
-    ELT --> MINIO
-    LPI --> MINIO
-    PNS --> MINIO
-    LIVE --> MINIO
-    ACA --> MINIO
-    ETL --> MINIO
-
-    MINIO -->|load JSONB| RAW
-    ETL -->|transform Python puis load| RAW
-    RAW --> DBT --> GOLD
-
-    ELT -.-> AUDIT
-    DBT -.-> AUDIT
-
-    GOLD --> GRAF
-    GOLD --> ST
-    AUDIT --> GRAF
-    AUDIT --> ST
+    SRC -->|"collecte : API, SQL, scraping"| AF
+    AF -->|"archivage brut"| MINIO
+    MINIO -->|"chargement JSONB"| WH
+    WH -->|"transformation dbt<br/>(staging → intermediate → gold)"| GOLD
+    GOLD -->|"lecture seule"| VIZ
+    AF -.->|"journalise"| AUD
+    AUD -.->|"supervision"| VIZ
 ```
+
+### Les 7 pipelines Airflow
+
+| DAG | Rôle | Pattern | Fréquence |
+|---|---|---|---|
+| `datadragon_ingestion` | Référentiel du jeu (champions, objets, runes) | ETL | Quotidien |
+| `riot_euw_ingestion` | Matchs classés + timelines EUW | ELT (E/L) | Quotidien |
+| `leaguepedia_ingestion` | Tournois, équipes, parties professionnelles | ELT (E/L) | Quotidien |
+| `patch_notes_scraping` | Notes de patch officielles | Scraping | Quotidien (à chaque nouveau patch) |
+| `riot_live_spectator` | Parties en cours des joueurs suivis | Micro-batch temps réel | Toutes les 30 min |
+| `riot_academy_tracking` | Maîtrises des joueurs du club | ELT | Quotidien |
+| `dbt_transform` | Construction des tables d'analyse + tests qualité | ELT (T) | Quotidien |
 
 Architecture en médaillon : **bronze** (JSON bruts dans MinIO, unique zone bronze — écriture locale seulement en mode dégradé sans MinIO), **raw/reference** (warehouse Postgres), **staging → intermediate → gold** (modèles dbt), **audit** (traçabilité des runs). Devise : *MinIO conserve, Postgres calcule.*
 
