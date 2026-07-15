@@ -10,31 +10,61 @@ Projet de fin d'études (RNCP 39586 — Ingénieur en science des données).
 
 ```mermaid
 flowchart LR
-    subgraph Sources
-        RIOT[Riot API<br/>match-v5, league-v4]
-        DD[Data Dragon<br/>référentiel]
-        LP[Leaguepedia API<br/>à venir]
+    subgraph SRC["Sources externes"]
+        RIOT["Riot API<br/>match-v5 · timelines · league-v4<br/>spectator-v5 · account-v1 · mastery-v4"]
+        DD["Data Dragon<br/>champions · objets · sorts · runes"]
+        LP["Leaguepedia (Cargo)<br/>tournois · équipes · parties pro"]
+        PN["Notes de patch officielles<br/>(web scraping)"]
     end
 
-    subgraph Ingestion["Airflow (orchestration)"]
-        E1[riot_euw_ingestion<br/>ELT - Extract/Load]
-        E2[datadragon_ingestion<br/>ETL]
-        T1[dbt_transform<br/>ELT - Transform]
+    subgraph AF["Apache Airflow — 7 DAGs"]
+        ETL["datadragon_ingestion — ETL"]
+        ELT["riot_euw_ingestion — ELT"]
+        LPI["leaguepedia_ingestion — ELT"]
+        PNS["patch_notes_scraping"]
+        LIVE["riot_live_spectator — micro-batch 30 min"]
+        ACA["riot_academy_tracking"]
+        DBT["dbt_transform — T de l'ELT"]
     end
 
-    subgraph Stockage
-        MINIO[(MinIO<br/>data lake bronze<br/>JSON partitionnés)]
-        PG[(Postgres gold<br/>raw / reference / staging /<br/>intermediate / gold / audit)]
+    MINIO[("MinIO — data lake<br/>zone bronze unique<br/>JSON bruts partitionnés")]
+
+    subgraph PG["PostgreSQL — entrepôt"]
+        RAW[("raw / reference")]
+        GOLD[("staging → intermediate → gold<br/>(construits par dbt)")]
+        AUDIT[("audit<br/>traçabilité des runs")]
     end
 
-    GRAF[Grafana<br/>dashboards méta + supervision]
+    subgraph EXPO["Exposition — rôle data_analyst (lecture seule)"]
+        GRAF["Grafana<br/>dashboards méta + supervision"]
+        ST["Streamlit<br/>application coachs"]
+    end
 
-    RIOT --> E1 --> MINIO
-    E1 -->|load JSONB| PG
-    DD --> E2 -->|transform Python puis load| PG
-    E2 --> MINIO
-    PG --> T1 --> PG
-    PG --> GRAF
+    RIOT --> ELT
+    RIOT --> LIVE
+    RIOT --> ACA
+    DD --> ETL
+    LP --> LPI
+    PN --> PNS
+
+    ELT --> MINIO
+    LPI --> MINIO
+    PNS --> MINIO
+    LIVE --> MINIO
+    ACA --> MINIO
+    ETL --> MINIO
+
+    MINIO -->|load JSONB| RAW
+    ETL -->|transform Python puis load| RAW
+    RAW --> DBT --> GOLD
+
+    ELT -.-> AUDIT
+    DBT -.-> AUDIT
+
+    GOLD --> GRAF
+    GOLD --> ST
+    AUDIT --> GRAF
+    AUDIT --> ST
 ```
 
 Architecture en médaillon : **bronze** (JSON bruts dans MinIO, unique zone bronze — écriture locale seulement en mode dégradé sans MinIO), **raw/reference** (warehouse Postgres), **staging → intermediate → gold** (modèles dbt), **audit** (traçabilité des runs). Devise : *MinIO conserve, Postgres calcule.*
