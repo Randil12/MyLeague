@@ -11,20 +11,33 @@ Projet de fin d'études (RNCP 39586 — Ingénieur en science des données).
 ```mermaid
 flowchart TB
     SRC["SOURCES EXTERNES<br/>Riot API — Data Dragon — Leaguepedia — Notes de patch"]
-    AF["APACHE AIRFLOW<br/>7 pipelines planifiés (détail ci-dessous)"]
-    MINIO["MINIO — DATA LAKE<br/>Zone bronze : JSON bruts partitionnés, source de vérité"]
-    WH["POSTGRESQL — ENTREPÔT<br/>Schémas raw + reference : données chargées"]
-    GOLD["POSTGRESQL — GOLD<br/>Tables d'analyse : méta, presence, builds, méta pro"]
-    VIZ["RESTITUTION — lecture seule (rôle data_analyst)<br/>Grafana (dashboards) — Streamlit (application coachs)"]
-    AUD["AUDIT<br/>Traçabilité de<br/>chaque exécution"]
+
+    subgraph DOCKER["DOCKER COMPOSE — stack MyLeague"]
+        AF["APACHE AIRFLOW<br/>Orchestration : 7 pipelines planifiés<br/>(ingestion, temps réel, transformation — détail ci-dessous)"]
+
+        subgraph MED["ARCHITECTURE MÉDAILLON"]
+            direction TB
+            BRONZE[("BRONZE — MinIO (data lake)<br/>JSON bruts partitionnés, immuables<br/>source de vérité")]
+            RAWREF[("RAW + REFERENCE — PostgreSQL<br/>JSONB chargé tel quel + référentiel typé")]
+            STG[("STAGING / INTERMEDIATE — PostgreSQL<br/>vues dbt : typage, filtres, jointures")]
+            GOLD[("GOLD — PostgreSQL<br/>tables d'analyse : méta, presence, builds, méta pro")]
+
+            BRONZE -->|"chargement JSONB"| RAWREF
+            RAWREF -->|"dbt"| STG
+            STG -->|"dbt + tests qualité"| GOLD
+        end
+
+        AUD[("AUDIT — PostgreSQL<br/>traçabilité de chaque exécution")]
+        GRAF["GRAFANA<br/>dashboards méta + supervision"]
+        ST["STREAMLIT<br/>application coachs"]
+    end
 
     SRC -->|"collecte : API, SQL, scraping"| AF
-    AF -->|"archivage brut"| MINIO
-    MINIO -->|"chargement JSONB"| WH
-    WH -->|"transformation dbt<br/>(staging → intermediate → gold)"| GOLD
-    GOLD -->|"lecture seule"| VIZ
+    AF -->|"archivage brut"| BRONZE
     AF -.->|"journalise"| AUD
-    AUD -.->|"supervision"| VIZ
+    GOLD -->|"lecture seule"| GRAF
+    GOLD -->|"lecture seule"| ST
+    AUD -.->|"supervision"| GRAF
 ```
 
 ### Les 7 pipelines Airflow
@@ -62,8 +75,8 @@ flowchart TB
 
     subgraph ELT["FLUX ELT — Riot & Leaguepedia (volumineux : schéma évolutif à chaque patch)"]
         direction LR
-        L1["1 — EXTRACT<br/>API Riot match-v5<br/>JSON matchs, timelines"]
-        L2["2 — LOAD<br/>bronze MinIO puis<br/>raw.riot_matches<br/>(JSONB brut, tel quel)"]
+        L1["1 — EXTRACT<br/>API Riot, API Leaguepedia<br/>matchs, timelines, parties pro"]
+        L2["2 — LOAD<br/>bronze MinIO puis<br/>raw.riot_* et raw.leaguepedia_*<br/>(JSONB brut, tel quel)"]
         L3["3 — TRANSFORM<br/>dbt (SQL) : staging →<br/>intermediate → gold<br/>+ tests de qualité"]
         L1 --> L2 --> L3
     end
@@ -127,6 +140,42 @@ tests/            Tests unitaires (pytest)
 
 Les joueurs sont identifiés par leur `puuid` (identifiant pseudonymisé fourni par Riot) ; aucun nom réel n'est collecté ni stocké. Les secrets (clé API Riot, mots de passe) sont gérés par variables d'environnement via `.env`, exclu du versioning.
 
-Principe du moindre privilège (`postgres/init_roles.sql`) : le rôle `data_engineer` a accès à tous les schémas data ; le rôle `data_analyst` est en lecture seule sur `gold`, `reference` et `audit` — c'est ce rôle qu'utilisent Grafana et l'application Streamlit, qui ne peuvent donc ni écrire ni accéder aux zones brutes. Le détail de la politique de sécurité est documenté dans `docs/` *(à venir, voir ROADMAP)*.
+Principe du moindre privilège (`postgres/init_roles.sql`) : le rôle `data_engineer` a accès à tous les schémas data ; le rôle `data_analyst` est en lecture seule sur `gold`, `reference` et `audit` — c'est ce rôle qu'utilisent Grafana et l'application Streamlit, qui ne peuvent donc ni écrire ni accéder aux zones brutes.
+
+### Architecture de sécurité — trois zones
+
+```mermaid
+flowchart TB
+    COACH["👤 Coachs / analystes du club"]
+    ENG["👤 Data engineer"]
+
+    subgraph Z1["ZONE EXPOSITION — seuls points d'accès des utilisateurs métier"]
+        GRAF["Grafana<br/>port exposé : 3000"]
+        ST["Streamlit<br/>port exposé : 8501"]
+    end
+
+    subgraph Z2["ZONE TRAITEMENT — détient les secrets (.env)"]
+        AF["Airflow<br/>port exposé : 8080 (équipe technique)"]
+        DBT["dbt"]
+    end
+
+    subgraph Z3["ZONE DONNÉES — réseau interne Docker, jamais exposée aux utilisateurs"]
+        PG[("PostgreSQL entrepôt<br/>port 5433 : dev uniquement,<br/>fermé en production")]
+        MINIO[("MinIO — data lake<br/>ports 9000/9001 : dev uniquement,<br/>fermés en production")]
+    end
+
+    COACH -->|"HTTP :3000 / :8501"| GRAF
+    COACH -->|"HTTP :8501"| ST
+    ENG -->|"admin Airflow :8080"| AF
+    ENG -->|"compte data_engineer<br/>(tous schémas data)"| PG
+
+    GRAF -->|"compte data_analyst<br/>SELECT sur gold, reference, audit"| PG
+    ST -->|"compte data_analyst<br/>lecture seule"| PG
+    AF -->|"compte gold (technique)<br/>écriture raw, reference, audit"| PG
+    DBT -->|"compte gold<br/>construit staging → gold"| PG
+    AF -->|"clés d'accès S3"| MINIO
+```
+
+En développement local, les ports de la zone données (5433, 9000/9001) sont publiés pour faciliter le travail (DBeaver, console MinIO) ; la cible de production les ferme et ajoute TLS sur les interfaces exposées via un reverse proxy. Le détail de la politique de sécurité est documenté dans `docs/` *(à venir, voir ROADMAP)*.
 
 Voir [ROADMAP.md](ROADMAP.md) pour les étapes restantes vers la certification.
