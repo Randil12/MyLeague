@@ -376,7 +376,7 @@ La documentation distingue les contrôles réellement présents dans le dépôt 
 | Pseudonymisation des joueurs par `puuid` | Actif | Aucun état civil nécessaire aux analyses |
 | Séparation des rôles PostgreSQL | Actif | `data_engineer` et `data_analyst` dans `postgres/init_roles.sql` |
 | Lecture seule de Streamlit et Grafana | Actif | Connexion avec `data_analyst`, sans droit sur `raw`, `staging` ou `intermediate` |
-| Segmentation des réseaux Docker | Actif | Quatre réseaux déclarés dans `docker-compose.yml`, dont trois avec `internal: true` |
+| Segmentation des réseaux Docker | Actif en développement | Six réseaux déclarés dans `docker-compose.yml`, dont trois `internal: true` ; `local_data_admin` reste un pont d'administration partagé |
 | Limitation des ports au poste local | Actif en développement | Tous les ports publiés écoutent uniquement sur `127.0.0.1` |
 | HTTPS vers Riot, Data Dragon et Leaguepedia | Actif | Clients sortants configurés avec des URL HTTPS |
 | TLS des interfaces utilisateur | Prévu | Aucun reverse proxy ni certificat présent dans le dépôt |
@@ -439,13 +439,15 @@ Les réseaux Docker assurent une isolation par appartenance : un conteneur ne r�
 
 | Réseau | Sous-réseau | Services autorisés | Règle active |
 |---|---|---|---|
+| `local_ui` | `172.30.10.0/24` | `streamlit`, `pgsql-init` | Réseau local de l'interface et du bootstrap ; aucun accès entrant externe |
+| `local_data_admin` | `172.30.15.0/24` | `postgres`, `minio`, `gold-postgres` | Pont local d'administration ; ce réseau partagé n'est pas une frontière d'isolation |
 | `airflow_control` | `172.30.20.0/24` | `postgres`, `airflow` | Seul Airflow accède à sa base de métadonnées |
 | `lake` | `172.30.30.0/24` | `minio`, `minio-init`, `airflow` | Streamlit, Grafana et dbt ne peuvent pas joindre MinIO |
 | `warehouse` | `172.30.40.0/24` | `gold-postgres`, `pgsql-init`, `airflow`, `dbt`, `streamlit`, `grafana` | Accès réseau au warehouse, puis filtrage SQL par rôle |
 | `airflow_egress` | `172.30.50.0/24` | `airflow` | Seul Airflow dispose du réseau de sortie destiné aux collectes |
 | `edge` | `172.30.10.0/24` | Reverse proxy uniquement | Prévu en production ; non déclaré dans Compose aujourd'hui |
 
-Tous les ports publiés sont liés à `127.0.0.1`. Cette mesure empêche une exposition directe sur le réseau local, mais elle ne remplace ni l'authentification ni TLS.
+Tous les ports publiés sont liés à `127.0.0.1`. Cette mesure empêche une exposition directe sur le réseau local, mais elle ne remplace ni l'authentification ni TLS. En développement, `local_data_admin` relie encore les trois services de données qui y sont attachés ; la cible de production est de supprimer ce pont et d'administrer ces services via un bastion ou des ports locaux contrôlés.
 
 ### Règles de filtrage
 
@@ -542,9 +544,9 @@ Les tests marqués **actifs** peuvent être exécutés sur la stack locale. Les 
 
 | ID | Test | Résultat attendu | État |
 |---|---|---|---|
-| SEC-DB-01 | `data_analyst` exécute un `SELECT` sur `gold.gold_patch_summary` | Succès | Actif, à consigner |
-| SEC-DB-02 | `data_analyst` exécute un `DELETE` sur une table Gold | `permission denied` | Actif, à consigner |
-| SEC-DB-03 | `data_analyst` exécute un `SELECT` sur `raw.riot_matches` | `permission denied` | Actif, à consigner |
+| SEC-DB-01 | `data_analyst` exécute un `SELECT` sur `gold.gold_patch_summary` | Succès | Contrôle actif, test à consigner |
+| SEC-DB-02 | `data_analyst` exécute un `DELETE` sur une table Gold | `permission denied` | Contrôle actif, test à consigner |
+| SEC-DB-03 | `data_analyst` exécute un `SELECT` sur `raw.riot_matches` | `permission denied` | Contrôle actif, test à consigner |
 | SEC-NET-01 | Streamlit tente de résoudre ou joindre `minio:9000` | Échec : aucun réseau commun | Actif après recréation de la stack |
 | SEC-NET-02 | Grafana tente de joindre la base de métadonnées Airflow | Échec : aucun réseau commun | Actif après recréation de la stack |
 | SEC-NET-03 | Une autre machine du LAN tente `IP_DU_POSTE:5433` | Connexion refusée, écoute limitée à `127.0.0.1` | Actif après recréation de la stack |
@@ -555,32 +557,32 @@ Les tests marqués **actifs** peuvent être exécutés sur la stack locale. Les 
 | SEC-ENC-01 | Inspection du support des volumes | Support chiffré avec la technologie déclarée | Cible |
 | SEC-BKP-01 | Lecture directe d'une sauvegarde sans clé | Contenu inexploitable | Cible |
 | SEC-BKP-02 | Déchiffrement puis restauration sur une base isolée | Schémas, volumes et contrôles d'intégrité conformes | Cible |
-| SEC-SEC-01 | Recherche de secrets dans Git et l'image des conteneurs | Aucun secret détecté | Actif, à consigner |
+| SEC-SEC-01 | Recherche de secrets dans Git et l'image des conteneurs | Aucun secret détecté | Contrôle actif, test à consigner |
 
 Exemples de tests locaux de refus SQL :
 
 ```bash
 # Doit réussir
-docker exec -e PGPASSWORD="$DATA_ANALYST_PASSWORD" myleague-gold-postgres +  psql -U data_analyst -d gold -c "SELECT count(*) FROM gold.gold_patch_summary;"
+docker exec -e PGPASSWORD="$DATA_ANALYST_PASSWORD" myleague-gold-postgres psql -U data_analyst -d gold -c "SELECT count(*) FROM gold.gold_patch_summary;"
 
 # Doivent échouer avec permission denied
-docker exec -e PGPASSWORD="$DATA_ANALYST_PASSWORD" myleague-gold-postgres +  psql -U data_analyst -d gold -c "DELETE FROM gold.gold_patch_summary;"
-docker exec -e PGPASSWORD="$DATA_ANALYST_PASSWORD" myleague-gold-postgres +  psql -U data_analyst -d gold -c "SELECT count(*) FROM raw.riot_matches;"
+docker exec -e PGPASSWORD="$DATA_ANALYST_PASSWORD" myleague-gold-postgres psql -U data_analyst -d gold -c "DELETE FROM gold.gold_patch_summary;"
+docker exec -e PGPASSWORD="$DATA_ANALYST_PASSWORD" myleague-gold-postgres psql -U data_analyst -d gold -c "SELECT count(*) FROM raw.riot_matches;"
 ```
 
 Exemple de test d'isolation réseau actif :
 
 ```bash
 # Doit échouer : Streamlit n'est pas membre du réseau lake.
-docker exec myleague-streamlit python -c +  "import socket; socket.create_connection(('minio', 9000), timeout=3)"
+docker exec myleague-streamlit python -c "import socket; socket.create_connection(('minio', 9000), timeout=3)"
 ```
 
 Exemples de vérification cible après activation de TLS :
 
 ```bash
-openssl s_client -connect myleague.example.org:443 +  -servername myleague.example.org -verify_return_error
+openssl s_client -connect myleague.example.org:443 -servername myleague.example.org -verify_return_error
 
-psql "host=postgres.example.internal dbname=gold user=data_analyst +sslmode=verify-full sslrootcert=/run/secrets/ca.crt" +  -c "SELECT ssl FROM pg_stat_ssl WHERE pid = pg_backend_pid();"
+psql "host=postgres.example.internal dbname=gold user=data_analyst sslmode=verify-full sslrootcert=/run/secrets/ca.crt" -c "SELECT ssl FROM pg_stat_ssl WHERE pid = pg_backend_pid();"
 ```
 
 Chaque campagne doit conserver la date, l'environnement, la commande, le résultat, une capture ou un journal et l'identité du valideur.
