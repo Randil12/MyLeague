@@ -18,13 +18,13 @@ flowchart TB
         subgraph MED["ARCHITECTURE MÉDAILLON"]
             direction TB
             BRONZE[("BRONZE — MinIO (data lake)<br/>JSON bruts partitionnés, immuables<br/>source de vérité")]
-            RAWREF[("RAW + REFERENCE — PostgreSQL<br/>JSONB chargé tel quel + référentiel typé")]
+            RAWREF[("RAW + REFERENCE — PostgreSQL<br/>raw : JSONB chargé tel quel (ELT)<br/>reference : référentiel typé (ETL)")]
             STG[("STAGING / INTERMEDIATE — PostgreSQL<br/>vues dbt : typage, filtres, jointures")]
             GOLD[("GOLD — PostgreSQL<br/>tables d'analyse : méta, presence, builds, méta pro")]
 
-            BRONZE -->|"chargement JSONB"| RAWREF
-            RAWREF -->|"dbt"| STG
-            STG -->|"dbt + tests qualité"| GOLD
+            BRONZE -->|"ELT — Load :<br/>chargement JSONB (schéma raw)"| RAWREF
+            RAWREF -->|"ELT — Transform :<br/>dbt"| STG
+            STG -->|"ELT — Transform :<br/>dbt + tests qualité"| GOLD
         end
 
         AUD[("AUDIT — PostgreSQL<br/>traçabilité de chaque exécution")]
@@ -33,7 +33,8 @@ flowchart TB
     end
 
     SRC -->|"collecte : API, SQL, scraping"| AF
-    AF -->|"archivage brut"| BRONZE
+    AF -->|"ETL & ELT — Extract :<br/>archivage brut"| BRONZE
+    AF -->|"ETL — Transform + Load :<br/>Python → schéma reference"| RAWREF
     AF -.->|"journalise"| AUD
     GOLD -->|"lecture seule"| GRAF
     GOLD -->|"lecture seule"| ST
