@@ -6,10 +6,10 @@ Projet de fin d'études (RNCP 39586 — Ingénieur en science des données).
 
 **Problématique** : comment une structure e-sport peut-elle transformer des données de jeu massives, hétérogènes et en évolution constante (un patch toutes les deux semaines) en analyses fiables de la méta, afin d'éclairer ses décisions de draft, d'entraînement et de coaching ?
 
-## Architecture
+## Architecture technique en médaillon
 
 ```mermaid
-flowchart TB
+flowchart LR
     subgraph SELT["SOURCES EN ELT — volumineuses, schéma évolutif à chaque patch"]
         RIOT["Riot API<br/>matchs · timelines · ladder · live"]
         LPS["Leaguepedia (Cargo)<br/>tournois · équipes · parties pro"]
@@ -27,13 +27,14 @@ flowchart TB
         subgraph MED["ARCHITECTURE MÉDAILLON"]
             direction TB
             BRONZE[("BRONZE — MinIO<br/>JSON/HTML bruts, immuables<br/>source de vérité")]
-            RAW[("RAW — PostgreSQL<br/>JSONB chargé tel quel")]
-            REF[("REFERENCE — PostgreSQL<br/>référentiel typé,<br/>versionné par patch")]
-            STG[("STAGING / INTERMEDIATE<br/>vues dbt : typage,<br/>filtres, jointures")]
-            GOLD[("GOLD — PostgreSQL<br/>méta · presence · builds · méta pro")]
+            RAW[("RAW — PostgreSQL<br/>zone d'atterrissage SQL<br/>JSONB requêtable")]
+            STAGING[("STAGING — PostgreSQL<br/>typage · normalisation<br/>extraction du JSON")]
+            INTERMEDIATE[("INTERMEDIATE — PostgreSQL<br/>jointures · enrichissements<br/>règles métier")]
+            GOLD[("GOLD — PostgreSQL<br/>indicateurs de méta<br/>tables de consommation")]
+            REF[("REFERENCE — PostgreSQL<br/>dimensions typées et<br/>versionnées par patch")]
         end
 
-        AUD[("AUDIT<br/>traçabilité des exécutions")]
+        AUD[("AUDIT — PostgreSQL<br/>runs · erreurs · volumes<br/>curseurs d'ingestion")]
         GRAF["GRAFANA<br/>dashboards"]
         ST["STREAMLIT<br/>app coachs"]
     end
@@ -43,10 +44,11 @@ flowchart TB
 
     AF ==>|"archivage brut"| BRONZE
     BRONZE ==>|"ELT · Load<br/>JSONB tel quel"| RAW
-    RAW ==>|"ELT · Transform<br/>dbt"| STG
+    RAW ==>|"dbt · typage"| STAGING
+    STAGING ==>|"dbt · consolidation"| INTERMEDIATE
     AF ==>|"ETL · Transform Python<br/>puis Load"| REF
-    REF -.->|"jointures dbt<br/>(noms, versions)"| STG
-    STG ==>|"dbt + tests qualité"| GOLD
+    REF -.->|"enrichissement<br/>(noms, versions)"| INTERMEDIATE
+    INTERMEDIATE ==>|"dbt + tests qualité"| GOLD
 
     AF -.->|"journalise"| AUD
     GOLD ==>|"lecture seule"| GRAF
@@ -55,13 +57,19 @@ flowchart TB
 
     classDef elt fill:#dbeafe,stroke:#1d4ed8,color:#111827;
     classDef etl fill:#fef3c7,stroke:#b45309,color:#111827;
-    classDef store fill:#f3f4f6,stroke:#374151,color:#111827;
+    classDef bronze fill:#fef3c7,stroke:#b45309,color:#111827;
+    classDef silver fill:#f3f4f6,stroke:#4b5563,color:#111827;
+    classDef gold fill:#fef9c3,stroke:#a16207,color:#111827;
+    classDef transverse fill:#ffe4e6,stroke:#be123c,color:#111827;
     classDef viz fill:#dcfce7,stroke:#15803d,color:#111827;
     classDef orch fill:#ede9fe,stroke:#6d28d9,color:#111827;
 
     class RIOT,LPS,PN elt;
     class DD,CSV etl;
-    class BRONZE,RAW,REF,STG,GOLD,AUD store;
+    class BRONZE bronze;
+    class RAW,STAGING,INTERMEDIATE silver;
+    class GOLD gold;
+    class REF,AUD transverse;
     class GRAF,ST viz;
     class AF orch;
 ```
@@ -78,7 +86,7 @@ flowchart TB
 | `riot_academy_tracking` | Maîtrises des joueurs du club | ELT | Quotidien |
 | `dbt_transform` | Construction des tables d'analyse + tests qualité | ELT (T) | Quotidien |
 
-Architecture en médaillon : **bronze** (JSON bruts dans MinIO, unique zone bronze — écriture locale seulement en mode dégradé sans MinIO), **raw/reference** (warehouse Postgres), **staging → intermediate → gold** (modèles dbt), **audit** (traçabilité des runs). Devise : *MinIO conserve, Postgres calcule.*
+L'architecture en médaillon est répartie entre le data lake et l'entrepôt : **MinIO est la couche Bronze** et conserve les objets sources rejouables ; `raw` est la zone d'atterrissage SQL ; `staging` et `intermediate` forment ensemble la couche Silver ; `gold` est la couche de consommation. Les schémas `reference` et `audit` sont transverses : le premier fournit les dimensions versionnées, le second assure la traçabilité des traitements. Devise : *MinIO conserve, PostgreSQL calcule.*
 
 ## Deux patterns d'intégration assumés
 
