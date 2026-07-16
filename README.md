@@ -88,6 +88,106 @@ flowchart LR
 
 L'architecture en médaillon est répartie entre le data lake et l'entrepôt : **MinIO est la couche Bronze** et conserve les objets sources rejouables ; `raw` est la zone d'atterrissage SQL ; `staging` et `intermediate` forment ensemble la couche Silver ; `gold` est la couche de consommation. Les schémas `reference` et `audit` sont transverses : le premier fournit les dimensions versionnées, le second assure la traçabilité des traitements. Devise : *MinIO conserve, PostgreSQL calcule.*
 
+### Modèle dimensionnel en étoile
+
+Le grain central est **la participation d'un joueur à un match** : un match valide produit exactement dix lignes dans `intermediate.int_match_participants`. La clé logique de la table de faits est donc `(match_id, puuid)`. Les dimensions Data Dragon suffixées `_LATEST` représentent la vue logique de la version la plus récente utilisée dans les modèles Gold ; les tables physiques `reference.dim_*` conservent, elles, toutes les versions.
+
+```mermaid
+erDiagram
+    DIM_MATCH ||--|{ FACT_MATCH_PARTICIPANT : "contient 10 participants"
+    DIM_PLAYER o|--o{ FACT_MATCH_PARTICIPANT : "participe éventuellement à"
+    DIM_CHAMPION_LATEST ||--o{ FACT_MATCH_PARTICIPANT : "est joué dans"
+    DIM_RUNE_LATEST o|--o{ FACT_MATCH_PARTICIPANT : "équipe éventuellement"
+    DIM_ITEM_LATEST }o--o{ FACT_MATCH_PARTICIPANT : "équipe 0 à 6 slots"
+    DIM_SUMMONER_SPELL_LATEST }o--o{ FACT_MATCH_PARTICIPANT : "équipe 2 slots"
+
+    DIM_MATCH {
+        string match_id PK "stg_riot_matches"
+        string patch "dimension temporelle métier"
+        string region
+        int queue_id
+        bigint game_duration_s
+        timestamp game_started_at
+        string source_tier
+    }
+
+    DIM_PLAYER {
+        string puuid PK "audit.riot_tracked_players"
+        string tier
+        string rank
+        int league_points
+        string tracking_source
+    }
+
+    DIM_CHAMPION_LATEST {
+        int champion_key PK "clé logique de la vue latest"
+        string champion_id
+        string name
+        string primary_role
+        string version
+        string locale
+    }
+
+    DIM_RUNE_LATEST {
+        int rune_id PK "clé logique de la vue latest"
+        string rune_name
+        int style_id
+        string style_name
+        boolean is_keystone
+    }
+
+    DIM_ITEM_LATEST {
+        int item_id PK "clé logique de la vue latest"
+        string name
+        int gold_total
+        boolean purchasable
+    }
+
+    DIM_SUMMONER_SPELL_LATEST {
+        int spell_key PK "clé logique de la vue latest"
+        string name
+        numeric cooldown
+        int summoner_level
+    }
+
+    FACT_MATCH_PARTICIPANT {
+        string match_id PK, FK "avec puuid : clé composée"
+        string puuid PK, FK "avec match_id : clé composée"
+        int champion_key FK
+        int keystone_id FK "nullable"
+        int summoner_spell_1 FK
+        int summoner_spell_2 FK
+        int item0 FK "nullable"
+        int item1 FK "nullable"
+        int item2 FK "nullable"
+        int item3 FK "nullable"
+        int item4 FK "nullable"
+        int item5 FK "nullable"
+        int team_id
+        string team_position
+        boolean win
+        int kills
+        int deaths
+        int assists
+        int gold_earned
+        int total_cs
+        int vision_score
+        bigint damage_to_champions
+    }
+```
+
+| Élément | Table ou modèle physique | Clé | Cardinalité vers la table de faits |
+|---|---|---|---|
+| Match | `staging.stg_riot_matches` | `match_id` | 1 match → exactement 10 participations valides |
+| Joueur suivi | `audit.riot_tracked_players` | `puuid` | 0 ou 1 joueur suivi → 0 à N participations |
+| Champion | `reference.dim_champion` | physique : `(version, locale, champion_id)` ; logique latest : `champion_key` | 1 champion → 0 à N participations |
+| Rune | `reference.dim_rune` | physique : `(version, locale, rune_id)` ; logique latest : `rune_id` | 0 ou 1 keystone par participation |
+| Objet | `reference.dim_item` | physique : `(version, locale, item_id)` ; logique latest : `item_id` | 0 à 6 objets par participation |
+| Sort d'invocateur | `reference.dim_summoner_spell` | physique : `(version, locale, spell_id)` ; logique latest : `spell_key` | 2 sorts par participation |
+| Fait central | `intermediate.int_match_participants` | logique : `(match_id, puuid)` | 1 ligne par joueur et par match |
+
+Les mentions `PK` et `FK` du diagramme expriment le **contrat dimensionnel logique**. PostgreSQL impose déjà certaines clés dans `raw`, `reference` et `audit`, tandis que les modèles dbt contrôlent l'intégrité analytique avec des tests d'unicité, de non-nullité et de relations. Les tables `gold_*` sont des agrégats dérivés de cette étoile selon différents grains (`patch + champion`, `patch + tier + champion`, `patch + champion + item`, etc.).
+
 ## Deux patterns d'intégration assumés
 
 | Source | Pattern | Pourquoi |
