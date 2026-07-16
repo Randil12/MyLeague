@@ -220,6 +220,97 @@ flowchart TB
 
 La différence tient à la place du T : en **ETL**, la donnée est transformée *avant* d'entrer dans l'entrepôt (adapté à un référentiel stable et léger) ; en **ELT**, la donnée brute entre d'abord, et la transformation SQL se rejoue à volonté sur tout l'historique sans rappeler l'API (décisif sous contrainte de quotas).
 
+## Modèle de données
+
+Traits pleins = clés étrangères déclarées en base · traits pointillés = liens logiques (vérifiés par les tests dbt `relationships`). Les clés qui structurent le modèle : `match_id`, `puuid`, `champion_key`, `patch`.
+
+```mermaid
+erDiagram
+    AUDIT_PIPELINE_RUNS {
+        text run_id PK
+        text pipeline_name
+        text status
+        int records_written
+    }
+    AUDIT_RIOT_TRACKED_PLAYERS {
+        text puuid PK
+        text tier
+        text tracking_source "ladder ou academy"
+    }
+    AUDIT_RIOT_MATCH_INGESTION {
+        text match_id PK
+        text source_puuid FK
+        text status "pending, success, failed, not_found"
+        text run_id
+        int retry_count
+    }
+    RAW_RIOT_MATCHES {
+        text match_id PK
+        text source_puuid FK
+        text source_tier
+        text game_version "patch derive : 16.13"
+        jsonb payload
+    }
+    RAW_RIOT_MATCH_TIMELINES {
+        text match_id PK "FK vers riot_matches"
+        jsonb payload
+    }
+    RAW_RIOT_CHAMPION_MASTERIES {
+        text puuid PK "FK, cle composee"
+        int champion_key PK
+        int mastery_points
+    }
+    RAW_LEAGUEPEDIA_SCOREBOARD_GAMES {
+        text game_id PK
+        text patch
+        jsonb payload
+    }
+    RAW_LEAGUEPEDIA_SCOREBOARD_PLAYERS {
+        text game_id PK "FK, cle composee"
+        text player_page PK
+        text champion
+        text role
+    }
+    RAW_RIOT_PATCH_NOTES {
+        text patch PK
+        text url
+        jsonb payload "sections structurees"
+    }
+    REF_DIM_CHAMPION {
+        text version PK "cle composee : versionnee par patch"
+        text locale PK
+        text champion_id PK
+        int champion_key
+        text name
+    }
+    GOLD_CHAMPION_META_BY_PATCH {
+        text patch "agregat reconstruit par dbt"
+        text champion_name
+        int champion_key
+        numeric winrate
+        numeric pickrate
+    }
+    GOLD_CHAMPION_PATCH_CHANGES {
+        text patch
+        text champion_name
+        text change_text
+    }
+
+    AUDIT_RIOT_TRACKED_PLAYERS ||--o{ AUDIT_RIOT_MATCH_INGESTION : "source_puuid"
+    AUDIT_RIOT_TRACKED_PLAYERS ||--o{ RAW_RIOT_MATCHES : "source_puuid"
+    AUDIT_RIOT_TRACKED_PLAYERS ||--o{ RAW_RIOT_CHAMPION_MASTERIES : "puuid"
+    AUDIT_PIPELINE_RUNS ||..o{ AUDIT_RIOT_MATCH_INGESTION : "run_id (logique)"
+    AUDIT_RIOT_MATCH_INGESTION ||..o| RAW_RIOT_MATCHES : "match_id (cycle de vie)"
+    RAW_RIOT_MATCHES ||--o| RAW_RIOT_MATCH_TIMELINES : "match_id"
+    RAW_LEAGUEPEDIA_SCOREBOARD_GAMES ||--o{ RAW_LEAGUEPEDIA_SCOREBOARD_PLAYERS : "game_id"
+    RAW_RIOT_MATCHES ||..o{ GOLD_CHAMPION_META_BY_PATCH : "patch (via dbt)"
+    REF_DIM_CHAMPION ||..o{ GOLD_CHAMPION_META_BY_PATCH : "champion_key (logique)"
+    REF_DIM_CHAMPION ||..o{ GOLD_CHAMPION_PATCH_CHANGES : "champion_key (logique)"
+    RAW_RIOT_PATCH_NOTES ||..o{ GOLD_CHAMPION_PATCH_CHANGES : "patch"
+```
+
+Le référentiel (`dim_champion`, et de même `dim_item`, `dim_rune`, `dim_summoner_spell`) est versionné par patch et par langue — clé composée (version, locale, id). Les tables gold, reconstruites par dbt à chaque exécution, ne portent pas de clés étrangères : leurs liens sont vérifiés par les tests dbt à chaque build.
+
 ## Composants
 
 | Service | Rôle | Accès local |
@@ -276,40 +367,220 @@ Les joueurs sont identifiés par leur `puuid` (identifiant pseudonymisé fourni 
 
 Principe du moindre privilège (`postgres/init_roles.sql`) : le rôle `data_engineer` a accès à tous les schémas data ; le rôle `data_analyst` est en lecture seule sur `gold`, `reference` et `audit` — c'est ce rôle qu'utilisent Grafana et l'application Streamlit, qui ne peuvent donc ni écrire ni accéder aux zones brutes.
 
-### Architecture de sécurité — trois zones
+### État des contrôles de sécurité
+
+La documentation distingue les contrôles réellement présents dans le dépôt de la cible de production. Une mesure marquée **prévue** ne doit pas être présentée comme implémentée lors de la soutenance.
+
+| Contrôle | État | Preuve ou limite actuelle |
+|---|---|---|
+| Pseudonymisation des joueurs par `puuid` | Actif | Aucun état civil nécessaire aux analyses |
+| Séparation des rôles PostgreSQL | Actif | `data_engineer` et `data_analyst` dans `postgres/init_roles.sql` |
+| Lecture seule de Streamlit et Grafana | Actif | Connexion avec `data_analyst`, sans droit sur `raw`, `staging` ou `intermediate` |
+| Segmentation des réseaux Docker | Actif | Quatre réseaux déclarés dans `docker-compose.yml`, dont trois avec `internal: true` |
+| Limitation des ports au poste local | Actif en développement | Tous les ports publiés écoutent uniquement sur `127.0.0.1` |
+| HTTPS vers Riot, Data Dragon et Leaguepedia | Actif | Clients sortants configurés avec des URL HTTPS |
+| TLS des interfaces utilisateur | Prévu | Aucun reverse proxy ni certificat présent dans le dépôt |
+| TLS PostgreSQL et MinIO internes | Prévu | Connexions actuelles en clair sur les réseaux Docker internes |
+| Chiffrement applicatif des volumes | Prévu | Volumes Docker persistants, sans configuration de chiffrement dans Compose |
+| Sauvegardes chiffrées et restauration | Prévu | Aucun job de sauvegarde ou rapport de restauration présent |
+| Gestion centralisée et rotation des secrets | Partiel | `.env` non versionné, mais secrets injectés en variables d'environnement et valeurs locales faibles par défaut |
+| Tests de refus d'accès | Défini, à exécuter | Cas de test documentés ci-dessous ; campagne de recette à conserver |
+| Tests TLS et chiffrement | Prévu | Exécutables uniquement après déploiement des contrôles cibles |
+
+### Architecture réseau active en développement
 
 ```mermaid
-flowchart TB
-    COACH["👤 Coachs / analystes du club"]
-    ENG["👤 Data engineer"]
+flowchart LR
+    USER["Coachs et analystes"]
+    ADMIN["Data engineer"]
+    SOURCES["Riot · Data Dragon<br/>Leaguepedia · sites officiels"]
 
-    subgraph Z1["ZONE EXPOSITION — seuls points d'accès des utilisateurs métier"]
-        GRAF["Grafana<br/>port exposé : 3000"]
-        ST["Streamlit<br/>port exposé : 8501"]
+    ST["Streamlit<br/>127.0.0.1:8501"]
+    GRAF["Grafana<br/>127.0.0.1:3000"]
+    AF["Airflow<br/>127.0.0.1:8080<br/>membre des 4 réseaux"]
+    DBT["dbt"]
+
+    subgraph CONTROL["airflow_control — 172.30.20.0/24 — internal:true"]
+        META[("PostgreSQL Airflow<br/>TCP 5432")]
     end
 
-    subgraph Z2["ZONE TRAITEMENT — détient les secrets (.env)"]
-        AF["Airflow<br/>port exposé : 8080 (équipe technique)"]
-        DBT["dbt"]
+    subgraph LAKE["lake — 172.30.30.0/24 — internal:true"]
+        MINIO[("MinIO Bronze<br/>TCP 9000/9001")]
+        MINIOINIT["minio-init"]
     end
 
-    subgraph Z3["ZONE DONNÉES — réseau interne Docker, jamais exposée aux utilisateurs"]
-        PG[("PostgreSQL entrepôt<br/>port 5433 : dev uniquement,<br/>fermé en production")]
-        MINIO[("MinIO — data lake<br/>ports 9000/9001 : dev uniquement,<br/>fermés en production")]
+    subgraph WAREHOUSE["warehouse — 172.30.40.0/24 — internal:true"]
+        PG[("PostgreSQL Gold<br/>TCP 5432")]
+        PGSQLINIT["pgsql-init"]
     end
 
-    COACH -->|"HTTP :3000 / :8501"| GRAF
-    COACH -->|"HTTP :8501"| ST
-    ENG -->|"admin Airflow :8080"| AF
-    ENG -->|"compte data_engineer<br/>(tous schémas data)"| PG
+    subgraph EGRESS["airflow_egress — 172.30.50.0/24"]
+        OUT["Sortie Internet réservée à Airflow"]
+    end
 
-    GRAF -->|"compte data_analyst<br/>SELECT sur gold, reference, audit"| PG
-    ST -->|"compte data_analyst<br/>lecture seule"| PG
-    AF -->|"compte gold (technique)<br/>écriture raw, reference, audit"| PG
-    DBT -->|"compte gold<br/>construit staging → gold"| PG
-    AF -->|"clés d'accès S3"| MINIO
+    USER -->|"HTTP local"| ST
+    USER -->|"HTTP local"| GRAF
+    ADMIN -->|"HTTP local"| AF
+    ADMIN -->|"DBeaver 127.0.0.1:5433"| PG
+
+    ST -->|"data_analyst · SELECT"| PG
+    GRAF -->|"data_analyst · SELECT"| PG
+    DBT -->|"compte technique · dbt build"| PG
+    AF -->|"ingestion et chargement"| PG
+    PGSQLINIT -->|"initialisation"| PG
+
+    AF -->|"S3 HTTP interne"| MINIO
+    MINIOINIT -->|"création du bucket"| MINIO
+    AF -->|"métadonnées Airflow"| META
+    AF --> OUT -->|"HTTPS 443"| SOURCES
 ```
 
-En développement local, les ports de la zone données (5433, 9000/9001) sont publiés pour faciliter le travail (DBeaver, console MinIO) ; la cible de production les ferme et ajoute TLS sur les interfaces exposées via un reverse proxy. Le détail de la politique de sécurité est documenté dans `docs/` *(à venir, voir ROADMAP)*.
+Les réseaux Docker assurent une isolation par appartenance : un conteneur ne résout et ne joint que les services présents sur un réseau commun. Le réseau `warehouse` reste partagé par les consommateurs autorisés ; le filtrage fin à l'intérieur de ce réseau est assuré par les rôles PostgreSQL, pas par un pare-feu par conteneur.
 
-Voir [ROADMAP.md](ROADMAP.md) pour les étapes restantes vers la certification.
+| Réseau | Sous-réseau | Services autorisés | Règle active |
+|---|---|---|---|
+| `airflow_control` | `172.30.20.0/24` | `postgres`, `airflow` | Seul Airflow accède à sa base de métadonnées |
+| `lake` | `172.30.30.0/24` | `minio`, `minio-init`, `airflow` | Streamlit, Grafana et dbt ne peuvent pas joindre MinIO |
+| `warehouse` | `172.30.40.0/24` | `gold-postgres`, `pgsql-init`, `airflow`, `dbt`, `streamlit`, `grafana` | Accès réseau au warehouse, puis filtrage SQL par rôle |
+| `airflow_egress` | `172.30.50.0/24` | `airflow` | Seul Airflow dispose du réseau de sortie destiné aux collectes |
+| `edge` | `172.30.10.0/24` | Reverse proxy uniquement | Prévu en production ; non déclaré dans Compose aujourd'hui |
+
+Tous les ports publiés sont liés à `127.0.0.1`. Cette mesure empêche une exposition directe sur le réseau local, mais elle ne remplace ni l'authentification ni TLS.
+
+### Règles de filtrage
+
+| Priorité | Source | Destination | Décision | État |
+|---:|---|---|---|---|
+| 1 | Internet | PostgreSQL, MinIO | Refuser tout accès direct | Actif sur le réseau local grâce au binding `127.0.0.1`; fermeture totale prévue en production |
+| 2 | Coach | Streamlit, Grafana | Autoriser uniquement les interfaces métier | Actif en local ; passage par le reverse proxy prévu |
+| 3 | Data engineer | Airflow et outils d'administration | Autoriser depuis le poste local ; VPN/bastion prévu en production | Partiel |
+| 4 | Streamlit, Grafana | PostgreSQL Gold | Autoriser TCP 5432 avec `data_analyst` | Actif |
+| 5 | Streamlit, Grafana, dbt | MinIO | Refuser par absence d'appartenance au réseau `lake` | Actif |
+| 6 | Airflow | MinIO, PostgreSQL Gold, PostgreSQL Airflow | Autoriser uniquement les flux nécessaires aux pipelines | Actif par segmentation réseau |
+| 7 | Airflow | Sources externes | Autoriser HTTPS 443 sortant | Actif |
+| 8 | Tout autre flux interzone | Toute destination | Refus implicite par absence de réseau commun | Actif, dans les limites du modèle réseau Docker |
+
+### Matrice détaillée des flux
+
+| Source | Destination | Port | Protocole actuel | Identité ou contrôle | État cible |
+|---|---|---:|---|---|---|
+| Coach | Streamlit | 8501 | HTTP/TCP sur `127.0.0.1` | Accès local | HTTPS 443 via reverse proxy et authentification |
+| Coach | Grafana | 3000 | HTTP/TCP sur `127.0.0.1` | Compte Grafana | HTTPS 443 via reverse proxy |
+| Data engineer | Airflow | 8080 | HTTP/TCP sur `127.0.0.1` | Compte administrateur Airflow | HTTPS 443 depuis VPN/bastion |
+| Data engineer | PostgreSQL Gold | 5433 vers 5432 | PostgreSQL/TCP sur `127.0.0.1` | `data_engineer` | `sslmode=verify-full` depuis VPN/bastion |
+| Data engineer | Console MinIO | 9001 | HTTP/TCP sur `127.0.0.1` | Compte MinIO local | HTTPS 443 ou 9001 depuis VPN/bastion |
+| Airflow | Riot, Data Dragon, Leaguepedia, notes de patch | 443 | HTTPS/TCP | Jetons API ou accès public | Conserver HTTPS et limiter les destinations sortantes |
+| Airflow | PostgreSQL Airflow | 5432 | PostgreSQL/TCP interne | Compte `airflow` | TLS PostgreSQL avec vérification du certificat |
+| Airflow | MinIO | 9000 | S3 sur HTTP/TCP interne | Clé MinIO | S3 sur HTTPS avec compte de service dédié |
+| `minio-init` | MinIO | 9000 | S3 sur HTTP/TCP interne | Compte root MinIO | Compte de bootstrap temporaire, puis révocation |
+| Airflow | PostgreSQL Gold | 5432 | PostgreSQL/TCP interne | Compte technique `gold` | TLS et compte d'ingestion dédié à droits minimaux |
+| dbt | PostgreSQL Gold | 5432 | PostgreSQL/TCP interne | Compte technique `gold` | TLS et compte dbt dédié |
+| Streamlit | PostgreSQL Gold | 5432 | PostgreSQL/TCP interne | `data_analyst` en lecture seule | TLS `verify-full`, même rôle |
+| Grafana | PostgreSQL Gold | 5432 | PostgreSQL/TCP interne | `data_analyst` en lecture seule | TLS `verify-full`, même rôle |
+| `pgsql-init` | PostgreSQL Gold | 5432 | PostgreSQL/TCP interne | Superutilisateur au bootstrap | Compte bootstrap temporaire et secret monté |
+
+### Cible TLS et gestion des certificats
+
+Aujourd'hui, seul le trafic vers les sources externes est chiffré. Les configurations suivantes sont la **cible de production** et ne sont pas encore présentes dans le dépôt :
+
+```text
+security/tls/
+├── reverse-proxy/fullchain.pem     # certificat public ou AC interne
+├── reverse-proxy/privkey.pem       # secret non versionné
+├── postgres/server.crt
+├── postgres/server.key             # permission 0600, secret non versionné
+├── minio/public.crt
+├── minio/private.key               # secret non versionné
+└── ca/ca.crt                       # autorité approuvée par les clients
+```
+
+Configuration attendue :
+
+- reverse proxy : TLS 1.2 minimum, TLS 1.3 privilégié, redirection HTTP vers HTTPS, HSTS après validation ;
+- PostgreSQL : `ssl=on`, règles `hostssl` dans `pg_hba.conf`, clients en `sslmode=verify-full` ;
+- MinIO : certificats montés dans le répertoire de certificats, endpoint `https://minio:9000` et validation de la CA ;
+- certificats privés montés en lecture seule depuis un gestionnaire de secrets, jamais committés ;
+- renouvellement automatisé avant expiration et alerte à J-30.
+
+Exemple de paramètres clients cibles :
+
+```text
+PostgreSQL : sslmode=verify-full&sslrootcert=/run/secrets/ca.crt
+MinIO      : https://minio:9000 + AWS_CA_BUNDLE=/run/secrets/ca.crt
+```
+
+### Chiffrement des volumes et des sauvegardes
+
+| Donnée | Situation actuelle | Cible de production | Contrôle attendu |
+|---|---|---|---|
+| Volume `gold_postgres_data` | Volume Docker non chiffré par l'application | Disque hôte chiffré BitLocker/LUKS ou volume cloud chiffré par KMS | Preuve du chiffrement du support |
+| Volume `airflow_postgres_data` | Volume Docker non chiffré par l'application | Même politique que le warehouse | Preuve du chiffrement du support |
+| Volume `minio_data` | Volume Docker non chiffré par l'application | Chiffrement du disque et SSE-S3/SSE-KMS MinIO | Vérification des métadonnées de chiffrement |
+| Volume `grafana_data` | Volume Docker non chiffré par l'application | Disque hôte chiffré | Preuve du chiffrement du support |
+| Sauvegarde PostgreSQL | Non implémentée | `pg_dump` chiffré avec `age` ou KMS, stockage hors site | Déchiffrement et restauration trimestriels |
+| Sauvegarde MinIO | Non implémentée | Réplication chiffrée, versioning et rétention immuable | Test de restauration d'un objet supprimé |
+
+Les clés de chiffrement doivent être séparées des sauvegardes. Une sauvegarde n'est considérée valide qu'après un test de restauration documenté.
+
+### Gestion et rotation des secrets
+
+| Secret | Situation actuelle | Cible | Rotation proposée |
+|---|---|---|---|
+| Clé Riot | Variable `.env` | Secret manager, injecté à l'exécution | À chaque renouvellement de clé de développement ou immédiatement après exposition |
+| Identifiants Leaguepedia | Variable `.env` | Secret manager, compte bot dédié | Tous les 90 jours ou après incident |
+| Mots de passe PostgreSQL | Variables `.env` | Secrets Docker/Vault et comptes distincts ingestion, dbt, lecture | Tous les 90 jours, avec période de chevauchement contrôlée |
+| Clé MinIO | Compte root partagé par les jobs | Comptes de service à politiques S3 minimales | Tous les 90 jours ; root réservé au bootstrap |
+| Secrets Airflow JWT/API | Variables d'environnement avec valeurs de développement | Valeurs aléatoires de 32 octets minimum dans le secret manager | Tous les 90 jours et après incident |
+| Administrateurs Airflow/Grafana | Mots de passe `.env`, valeurs locales par défaut possibles | SSO/OIDC et MFA | Selon politique IAM ; révocation immédiate au départ d'un utilisateur |
+| Certificats TLS | Absents | ACME ou PKI interne | Renouvellement automatique avant expiration |
+
+Procédure cible : créer le nouveau secret, permettre temporairement les deux versions si le service le permet, redéployer les consommateurs, vérifier les accès, révoquer l'ancien secret, puis consigner l'opération sans enregistrer sa valeur.
+
+### Tests de refus d'accès et de chiffrement
+
+Les tests marqués **actifs** peuvent être exécutés sur la stack locale. Les tests **cibles** ne doivent passer qu'après déploiement de TLS, du chiffrement et des sauvegardes.
+
+| ID | Test | Résultat attendu | État |
+|---|---|---|---|
+| SEC-DB-01 | `data_analyst` exécute un `SELECT` sur `gold.gold_patch_summary` | Succès | Actif, à consigner |
+| SEC-DB-02 | `data_analyst` exécute un `DELETE` sur une table Gold | `permission denied` | Actif, à consigner |
+| SEC-DB-03 | `data_analyst` exécute un `SELECT` sur `raw.riot_matches` | `permission denied` | Actif, à consigner |
+| SEC-NET-01 | Streamlit tente de résoudre ou joindre `minio:9000` | Échec : aucun réseau commun | Actif après recréation de la stack |
+| SEC-NET-02 | Grafana tente de joindre la base de métadonnées Airflow | Échec : aucun réseau commun | Actif après recréation de la stack |
+| SEC-NET-03 | Une autre machine du LAN tente `IP_DU_POSTE:5433` | Connexion refusée, écoute limitée à `127.0.0.1` | Actif après recréation de la stack |
+| SEC-TLS-01 | Client HTTPS vérifie le certificat du reverse proxy | Chaîne valide, TLS 1.2 ou 1.3, nom d'hôte correct | Cible |
+| SEC-TLS-02 | Client PostgreSQL utilise `sslmode=verify-full` | Connexion chiffrée et certificat vérifié | Cible |
+| SEC-TLS-03 | Client PostgreSQL utilise une CA invalide | Connexion refusée | Cible |
+| SEC-TLS-04 | Client S3 appelle MinIO en HTTP | Refus ou redirection ; seul HTTPS est autorisé | Cible |
+| SEC-ENC-01 | Inspection du support des volumes | Support chiffré avec la technologie déclarée | Cible |
+| SEC-BKP-01 | Lecture directe d'une sauvegarde sans clé | Contenu inexploitable | Cible |
+| SEC-BKP-02 | Déchiffrement puis restauration sur une base isolée | Schémas, volumes et contrôles d'intégrité conformes | Cible |
+| SEC-SEC-01 | Recherche de secrets dans Git et l'image des conteneurs | Aucun secret détecté | Actif, à consigner |
+
+Exemples de tests locaux de refus SQL :
+
+```bash
+# Doit réussir
+docker exec -e PGPASSWORD="$DATA_ANALYST_PASSWORD" myleague-gold-postgres +  psql -U data_analyst -d gold -c "SELECT count(*) FROM gold.gold_patch_summary;"
+
+# Doivent échouer avec permission denied
+docker exec -e PGPASSWORD="$DATA_ANALYST_PASSWORD" myleague-gold-postgres +  psql -U data_analyst -d gold -c "DELETE FROM gold.gold_patch_summary;"
+docker exec -e PGPASSWORD="$DATA_ANALYST_PASSWORD" myleague-gold-postgres +  psql -U data_analyst -d gold -c "SELECT count(*) FROM raw.riot_matches;"
+```
+
+Exemple de test d'isolation réseau actif :
+
+```bash
+# Doit échouer : Streamlit n'est pas membre du réseau lake.
+docker exec myleague-streamlit python -c +  "import socket; socket.create_connection(('minio', 9000), timeout=3)"
+```
+
+Exemples de vérification cible après activation de TLS :
+
+```bash
+openssl s_client -connect myleague.example.org:443 +  -servername myleague.example.org -verify_return_error
+
+psql "host=postgres.example.internal dbname=gold user=data_analyst +sslmode=verify-full sslrootcert=/run/secrets/ca.crt" +  -c "SELECT ssl FROM pg_stat_ssl WHERE pid = pg_backend_pid();"
+```
+
+Chaque campagne doit conserver la date, l'environnement, la commande, le résultat, une capture ou un journal et l'identité du valideur.
