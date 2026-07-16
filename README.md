@@ -10,35 +10,60 @@ Projet de fin d'études (RNCP 39586 — Ingénieur en science des données).
 
 ```mermaid
 flowchart TB
-    SRC["SOURCES EXTERNES<br/>Riot API — Data Dragon — Leaguepedia — Notes de patch"]
+    subgraph SELT["SOURCES EN ELT — volumineuses, schéma évolutif à chaque patch"]
+        RIOT["Riot API<br/>matchs · timelines · ladder · live"]
+        LPS["Leaguepedia (Cargo)<br/>tournois · équipes · parties pro"]
+        PN["Notes de patch officielles<br/>web scraping"]
+    end
+
+    subgraph SETL["SOURCES EN ETL — référentiel stable, faible volume"]
+        DD["Data Dragon<br/>champions · objets · sorts · runes"]
+        CSV["CSV internes du club<br/>(phase 2)"]
+    end
 
     subgraph DOCKER["DOCKER COMPOSE — stack MyLeague"]
-        AF["APACHE AIRFLOW<br/>Orchestration : 7 pipelines planifiés<br/>(ingestion, temps réel, transformation — détail ci-dessous)"]
+        AF["APACHE AIRFLOW<br/>orchestration : 7 pipelines planifiés"]
 
         subgraph MED["ARCHITECTURE MÉDAILLON"]
             direction TB
-            BRONZE[("BRONZE — MinIO (data lake)<br/>JSON bruts partitionnés, immuables<br/>source de vérité")]
-            RAWREF[("RAW + REFERENCE — PostgreSQL<br/>raw : JSONB chargé tel quel (ELT)<br/>reference : référentiel typé (ETL)")]
-            STG[("STAGING / INTERMEDIATE — PostgreSQL<br/>vues dbt : typage, filtres, jointures")]
-            GOLD[("GOLD — PostgreSQL<br/>tables d'analyse : méta, presence, builds, méta pro")]
-
-            BRONZE -->|"ELT — Load :<br/>chargement JSONB (schéma raw)"| RAWREF
-            RAWREF -->|"ELT — Transform :<br/>dbt"| STG
-            STG -->|"ELT — Transform :<br/>dbt + tests qualité"| GOLD
+            BRONZE[("BRONZE — MinIO<br/>JSON/HTML bruts, immuables<br/>source de vérité")]
+            RAW[("RAW — PostgreSQL<br/>JSONB chargé tel quel")]
+            REF[("REFERENCE — PostgreSQL<br/>référentiel typé,<br/>versionné par patch")]
+            STG[("STAGING / INTERMEDIATE<br/>vues dbt : typage,<br/>filtres, jointures")]
+            GOLD[("GOLD — PostgreSQL<br/>méta · presence · builds · méta pro")]
         end
 
-        AUD[("AUDIT — PostgreSQL<br/>traçabilité de chaque exécution")]
-        GRAF["GRAFANA<br/>dashboards méta + supervision"]
-        ST["STREAMLIT<br/>application coachs"]
+        AUD[("AUDIT<br/>traçabilité des exécutions")]
+        GRAF["GRAFANA<br/>dashboards"]
+        ST["STREAMLIT<br/>app coachs"]
     end
 
-    SRC -->|"collecte : API, SQL, scraping"| AF
-    AF -->|"ETL & ELT — Extract :<br/>archivage brut"| BRONZE
-    AF -->|"ETL — Transform + Load :<br/>Python → schéma reference"| RAWREF
+    SELT ==>|"Extract — API, SQL, scraping"| AF
+    SETL ==>|"Extract — API"| AF
+
+    AF ==>|"archivage brut"| BRONZE
+    BRONZE ==>|"ELT · Load<br/>JSONB tel quel"| RAW
+    RAW ==>|"ELT · Transform<br/>dbt"| STG
+    AF ==>|"ETL · Transform Python<br/>puis Load"| REF
+    REF -.->|"jointures dbt<br/>(noms, versions)"| STG
+    STG ==>|"dbt + tests qualité"| GOLD
+
     AF -.->|"journalise"| AUD
-    GOLD -->|"lecture seule"| GRAF
-    GOLD -->|"lecture seule"| ST
+    GOLD ==>|"lecture seule"| GRAF
+    GOLD ==>|"lecture seule"| ST
     AUD -.->|"supervision"| GRAF
+
+    classDef elt fill:#dbeafe,stroke:#1d4ed8,color:#111827;
+    classDef etl fill:#fef3c7,stroke:#b45309,color:#111827;
+    classDef store fill:#f3f4f6,stroke:#374151,color:#111827;
+    classDef viz fill:#dcfce7,stroke:#15803d,color:#111827;
+    classDef orch fill:#ede9fe,stroke:#6d28d9,color:#111827;
+
+    class RIOT,LPS,PN elt;
+    class DD,CSV etl;
+    class BRONZE,RAW,REF,STG,GOLD,AUD store;
+    class GRAF,ST viz;
+    class AF orch;
 ```
 
 ### Les 7 pipelines Airflow
