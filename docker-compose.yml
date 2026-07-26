@@ -7,7 +7,7 @@
       POSTGRES_PASSWORD: airflow
       POSTGRES_DB: airflow
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     volumes:
       - airflow_postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -17,6 +17,9 @@
       retries: 5
       start_period: 10s
     restart: unless-stopped
+    networks:
+      - airflow_control
+      - local_data_admin
 
   airflow:
     image: apache/airflow:3.2.2
@@ -27,6 +30,8 @@
       postgres:
         condition: service_healthy
       minio-init:
+        condition: service_completed_successfully
+      pgsql-init:
         condition: service_completed_successfully
     environment:
       AIRFLOW__CORE__EXECUTOR: LocalExecutor
@@ -53,9 +58,13 @@
       RIOT_EUW_MAX_PLAYERS: ${RIOT_EUW_MAX_PLAYERS:-25}
       RIOT_EUW_MATCHES_PER_PLAYER: ${RIOT_EUW_MATCHES_PER_PLAYER:-10}
       RIOT_EUW_MAX_MATCHES_PER_RUN: ${RIOT_EUW_MAX_MATCHES_PER_RUN:-250}
-      _PIP_ADDITIONAL_REQUIREMENTS: ${_PIP_ADDITIONAL_REQUIREMENTS:-pandas scikit-learn dbt-postgres boto3 psycopg2-binary}
+      RIOT_EUW_INGEST_TIMELINES: ${RIOT_EUW_INGEST_TIMELINES:-true}
+      RIOT_EUW_EXTRA_TIERS: ${RIOT_EUW_EXTRA_TIERS:-}
+      RIOT_LIVE_MAX_PLAYERS: ${RIOT_LIVE_MAX_PLAYERS:-30}
+      ALERT_WEBHOOK_URL: ${ALERT_WEBHOOK_URL:-}
+      _PIP_ADDITIONAL_REQUIREMENTS: ${_PIP_ADDITIONAL_REQUIREMENTS:-pandas scikit-learn dbt-postgres boto3 psycopg2-binary mwrogue requests beautifulsoup4}
     ports:
-      - "8080:8080"
+      - "127.0.0.1:8080:8080"
     volumes:
       - ./airflow/dags:/opt/airflow/dags
       - ./airflow/logs:/opt/airflow/logs
@@ -82,6 +91,11 @@
         airflow scheduler &
         exec airflow api-server
     restart: unless-stopped
+    networks:
+      - airflow_control
+      - lake
+      - warehouse
+      - airflow_egress
 
   minio:
     image: minio/minio:RELEASE.2025-04-22T22-12-26Z
@@ -91,8 +105,8 @@
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
     ports:
-      - "9000:9000"
-      - "9001:9001"
+      - "127.0.0.1:9000:9000"
+      - "127.0.0.1:9001:9001"
     volumes:
       - minio_data:/data
     healthcheck:
@@ -102,6 +116,9 @@
       retries: 5
       start_period: 10s
     restart: unless-stopped
+    networks:
+      - lake
+      - local_data_admin
 
   minio-init:
     image: minio/mc:RELEASE.2025-04-16T18-13-26Z
@@ -146,6 +163,8 @@
           mc cp /tmp/.keep "local/$${MINIO_BUCKET}/$${path}/.keep"
         done
     restart: "no"
+    networks:
+      - lake
 
   gold-postgres:
     image: postgres:15
@@ -155,7 +174,7 @@
       POSTGRES_PASSWORD: ${GOLD_POSTGRES_PASSWORD:-gold}
       POSTGRES_DB: ${GOLD_POSTGRES_DB:-gold}
     ports:
-      - "5433:5432"
+      - "127.0.0.1:5433:5432"
     volumes:
       - gold_postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -165,9 +184,71 @@
       retries: 5
       start_period: 10s
     restart: unless-stopped
+    networks:
+      - warehouse
+      - local_data_admin
+
+  pgsql-init:
+    image: postgres:15
+    container_name: myleague-pgsql-init
+    depends_on:
+      gold-postgres:
+        condition: service_healthy
+    environment:
+      PGPASSWORD: ${GOLD_POSTGRES_PASSWORD:-gold}
+      GOLD_POSTGRES_USER: ${GOLD_POSTGRES_USER:-gold}
+      GOLD_POSTGRES_DB: ${GOLD_POSTGRES_DB:-gold}
+      DATA_ENGINEER_PASSWORD: ${DATA_ENGINEER_PASSWORD:-changez-moi-engineer}
+      DATA_ANALYST_PASSWORD: ${DATA_ANALYST_PASSWORD:-changez-moi-analyst}
+    volumes:
+      - ./postgres/init_gold.sql:/docker-entrypoint-initdb.d/init_gold.sql:ro
+      - ./postgres/init_roles.sql:/docker-entrypoint-initdb.d/init_roles.sql:ro
+    entrypoint: ["bash", "-c"]
+    command:
+      - |
+        set -e
+        psql \
+          -h gold-postgres \
+          -U "$${GOLD_POSTGRES_USER}" \
+          -d "$${GOLD_POSTGRES_DB}" \
+          -v ON_ERROR_STOP=1 \
+          -f /docker-entrypoint-initdb.d/init_gold.sql
+        psql \
+          -h gold-postgres \
+          -U "$${GOLD_POSTGRES_USER}" \
+          -d "$${GOLD_POSTGRES_DB}" \
+          -v ON_ERROR_STOP=1 \
+          -v data_engineer_password="$${DATA_ENGINEER_PASSWORD}" \
+          -v data_analyst_password="$${DATA_ANALYST_PASSWORD}" \
+          -f /docker-entrypoint-initdb.d/init_roles.sql
+    restart: "no"
+    networks:
+      - warehouse
+      - local_ui
+
+  streamlit:
+    build: ./app
+    container_name: myleague-streamlit
+    environment:
+      GOLD_POSTGRES_HOST: gold-postgres
+      GOLD_POSTGRES_PORT: 5432
+      GOLD_POSTGRES_DB: ${GOLD_POSTGRES_DB:-gold}
+      DATA_ANALYST_USER: ${DATA_ANALYST_USER:-data_analyst}
+      DATA_ANALYST_PASSWORD: ${DATA_ANALYST_PASSWORD:-changez-moi-analyst}
+    ports:
+      - "127.0.0.1:8501:8501"
+    volumes:
+      - ./app/app.py:/app/app.py
+    depends_on:
+      pgsql-init:
+        condition: service_completed_successfully
+    restart: unless-stopped
+    networks:
+      - warehouse
+      - local_ui
 
   dbt:
-    image: ghcr.io/dbt-labs/dbt-postgres:latest
+    image: ghcr.io/dbt-labs/dbt-postgres:1.9.0
     container_name: myleague-dbt
     working_dir: /usr/app
     environment:
@@ -181,9 +262,11 @@
       - ./dbt:/usr/app
       - ./dbt/profiles:/root/.dbt
     depends_on:
-      gold-postgres:
-        condition: service_healthy
+      pgsql-init:
+        condition: service_completed_successfully
     entrypoint: ["tail", "-f", "/dev/null"]
+    networks:
+      - warehouse
 
   grafana:
     image: grafana/grafana-oss:11.5.2
@@ -191,15 +274,20 @@
     environment:
       GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
       GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      DATA_ANALYST_USER: ${DATA_ANALYST_USER:-data_analyst}
+      DATA_ANALYST_PASSWORD: ${DATA_ANALYST_PASSWORD:-changez-moi-analyst}
     ports:
-      - "3000:3000"
+      - "127.0.0.1:3000:3000"
     volumes:
       - grafana_data:/var/lib/grafana
       - ./grafana/provisioning:/etc/grafana/provisioning
     depends_on:
-      gold-postgres:
-        condition: service_healthy
+      pgsql-init:
+        condition: service_completed_successfully
     restart: unless-stopped
+    networks:
+      - warehouse
+      - local_ui
 
 volumes:
   airflow_postgres_data:
@@ -207,10 +295,38 @@ volumes:
   minio_data:
   grafana_data:
 
-
-
-
-
-
-
+networks:
+  local_ui:
+    name: myleague-local-ui
+    ipam:
+      config:
+        - subnet: 172.30.10.0/24
+  local_data_admin:
+    name: myleague-local-data-admin
+    ipam:
+      config:
+        - subnet: 172.30.15.0/24
+  airflow_control:
+    name: myleague-airflow-control
+    internal: true
+    ipam:
+      config:
+        - subnet: 172.30.20.0/24
+  lake:
+    name: myleague-lake
+    internal: true
+    ipam:
+      config:
+        - subnet: 172.30.30.0/24
+  warehouse:
+    name: myleague-warehouse
+    internal: true
+    ipam:
+      config:
+        - subnet: 172.30.40.0/24
+  airflow_egress:
+    name: myleague-airflow-egress
+    ipam:
+      config:
+        - subnet: 172.30.50.0/24
 

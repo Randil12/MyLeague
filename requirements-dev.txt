@@ -1,0 +1,6 @@
+# Dépendances de développement et de CI
+-r requirements.txt
+-r app/requirements.txt
+pytest>=8.0
+ruff>=0.4
+dbt-postgres==1.9.0

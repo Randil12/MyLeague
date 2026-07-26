@@ -11,11 +11,11 @@ from jobs.datadragon.client import (
     get_champion_detail,
     get_champions,
     get_items,
+    get_runes,
     get_summoner_spells,
     get_versions,
     write_json,
 )
-
 
 DEFAULT_RAW_DIR = Path("data/bronze/datadragon")
 DEFAULT_MINIO_PREFIX = "bronze/datadragon"
@@ -24,6 +24,7 @@ LOCALIZED_DATASETS = {
     "champion_details",
     "items",
     "summoner_spells",
+    "runes",
 }
 
 
@@ -165,47 +166,59 @@ def run(
     minio_config = get_minio_config()
     minio_enabled = is_minio_enabled(minio_config)
 
+    # Datasets critiques : leur échec fait échouer le job (retry Airflow).
     versions = get_versions()
     version = versions[0]
-
     champions = get_champions(version, locale)
+
     datasets: dict[str, Any] = {
         "versions": versions,
         "champions": champions,
-        "champion_details": make_champion_details(champions, version, locale),
-        "items": get_items(version, locale),
-        "summoner_spells": get_summoner_spells(version, locale),
     }
 
+    # Datasets optionnels : un échec est journalisé mais ne bloque pas les autres
+    # (le transform_load réutilisera alors le latest.json du run précédent).
+    fetch_errors: dict[str, str] = {}
+    optional_fetchers = {
+        "champion_details": lambda: make_champion_details(champions, version, locale),
+        "items": lambda: get_items(version, locale),
+        "summoner_spells": lambda: get_summoner_spells(version, locale),
+        # runesReforged renvoie une liste : on l'enveloppe pour garder version/locale.
+        "runes": lambda: {
+            "type": "runes",
+            "version": version,
+            "locale": locale,
+            "data": get_runes(version, locale),
+        },
+    }
+    for dataset_name, fetcher in optional_fetchers.items():
+        try:
+            datasets[dataset_name] = fetcher()
+        except Exception as exc:  # noqa: BLE001 - keep ingestion resilient per dataset.
+            fetch_errors[f"{dataset_name}_error"] = str(exc)
+
     outputs: dict[str, str] = {}
-    minio_outputs: dict[str, str] = {}
 
     for dataset, payload in datasets.items():
-        outputs[dataset] = str(save_dataset(raw_path, dataset, version, run_id, locale, payload))
-
         if minio_enabled:
+            # MinIO est l'unique zone bronze : objet versionné + pointeur latest.
             versioned_key, latest_key = build_minio_keys(
                 minio_prefix, dataset, version, run_id, locale
             )
-            upload_json_to_minio(
-                payload,
-                bucket=str(minio_config["bucket"]),
-                key=versioned_key,
-                endpoint_url=str(minio_config["endpoint_url"]),
-                access_key_id=str(minio_config["access_key_id"]),
-                secret_access_key=str(minio_config["secret_access_key"]),
-                region_name=str(minio_config["region_name"]),
-            )
-            upload_json_to_minio(
-                payload,
-                bucket=str(minio_config["bucket"]),
-                key=latest_key,
-                endpoint_url=str(minio_config["endpoint_url"]),
-                access_key_id=str(minio_config["access_key_id"]),
-                secret_access_key=str(minio_config["secret_access_key"]),
-                region_name=str(minio_config["region_name"]),
-            )
-            minio_outputs[f"{dataset}_minio"] = f"s3://{minio_config['bucket']}/{versioned_key}"
+            for key in (versioned_key, latest_key):
+                upload_json_to_minio(
+                    payload,
+                    bucket=str(minio_config["bucket"]),
+                    key=key,
+                    endpoint_url=str(minio_config["endpoint_url"]),
+                    access_key_id=str(minio_config["access_key_id"]),
+                    secret_access_key=str(minio_config["secret_access_key"]),
+                    region_name=str(minio_config["region_name"]),
+                )
+            outputs[dataset] = f"s3://{minio_config['bucket']}/{versioned_key}"
+        else:
+            # Mode dégradé sans MinIO : écriture locale.
+            outputs[dataset] = str(save_dataset(raw_path, dataset, version, run_id, locale, payload))
 
     result = {
         "version": version,
@@ -213,8 +226,9 @@ def run(
         "locale": locale,
         **outputs,
     }
-    if minio_outputs:
-        result.update(minio_outputs)
+    if fetch_errors:
+        result["fetch_error_count"] = str(len(fetch_errors))
+        result.update(fetch_errors)
     return result
 
 

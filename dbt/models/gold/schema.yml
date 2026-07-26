@@ -1,0 +1,143 @@
+version: 2
+
+models:
+  - name: fact_match_participant
+    description: >
+      Table de faits du modèle en étoile (grain : un participant par match).
+      Se joint aux dimensions reference.dim_*_latest via champion_key, item0-5,
+      keystone_id et summoner_spell_1/2. Les agrégats gold en dérivent.
+    columns:
+      - name: fact_participant_key
+        tests: [unique, not_null]
+      - name: match_id
+        tests: [not_null]
+      - name: puuid
+        tests: [not_null]
+      - name: champion_key
+        tests: [not_null]
+
+  - name: gold_draft_recommendations
+    description: >
+      Recommandations explicables de pick/ban combinant présence ladder, winrate,
+      présence professionnelle et robustesse de l'échantillon.
+    columns:
+      - name: recommendation_key
+        tests: [unique, not_null]
+      - name: patch
+        tests: [not_null]
+      - name: champion_key
+        tests: [not_null]
+      - name: priority_score
+        tests: [not_null]
+      - name: confidence_level
+        tests:
+          - accepted_values:
+              values: ['faible', 'moyenne', 'élevée']
+
+  - name: gold_champion_patch_evolution
+    description: "Évolution du winrate et du pickrate entre patchs consécutifs."
+    columns:
+      - name: evolution_key
+        tests: [unique, not_null]
+      - name: patch
+        tests: [not_null]
+      - name: trend
+        tests:
+          - accepted_values:
+              values: ['nouveau', 'forte hausse', 'hausse', 'stable', 'baisse', 'forte baisse']
+
+  - name: gold_academy_player_pool_gap
+    description: >
+      Écart entre le pool maîtrisé par chaque joueur academy et les champions
+      prioritaires du patch courant.
+    columns:
+      - name: pool_gap_key
+        tests: [unique, not_null]
+      - name: puuid
+        tests: [not_null]
+      - name: champion_key
+        tests: [not_null]
+      - name: readiness
+        tests:
+          - accepted_values:
+              values: ['prêt', 'à consolider', 'en apprentissage', 'à acquérir']
+
+  - name: gold_champion_meta_by_patch
+    description: >
+      Statistiques de méta agrégées par champion et par patch (winrate, pickrate, KDA).
+      Alimente le dashboard Grafana "Méta LoL" et les recommandations de draft.
+    columns:
+      - name: patch
+        tests: [not_null]
+      - name: champion_name
+        tests: [not_null]
+      - name: winrate
+        tests:
+          - not_null
+      - name: picks
+        tests: [not_null]
+
+  - name: gold_patch_summary
+    description: "Volume de matchs analysés et durée moyenne par patch."
+    columns:
+      - name: patch
+        tests: [unique, not_null]
+
+  - name: gold_champion_bans_by_patch
+    description: >
+      Banrate et presence (pick + ban) par champion et par patch. La presence
+      est l'indicateur de priorité de draft présenté aux coachs.
+    columns:
+      - name: patch
+        tests: [not_null]
+      - name: champion_name
+        tests: [not_null]
+      - name: presence
+        tests: [not_null]
+
+  - name: gold_champion_items_by_patch
+    description: "Winrate des items par champion et par patch (builds gagnants)."
+    columns:
+      - name: patch
+        tests: [not_null]
+      - name: item_key
+        tests: [not_null]
+
+  - name: gold_champion_keystones_by_patch
+    description: "Winrate des runes keystone par champion et par patch."
+    columns:
+      - name: patch
+        tests: [not_null]
+      - name: keystone_id
+        tests: [not_null]
+
+  - name: gold_champion_meta_by_tier
+    description: "Méta par niveau de jeu (tier du joueur source du match)."
+    columns:
+      - name: patch
+        tests: [not_null]
+      - name: tier
+        tests: [not_null]
+
+  - name: gold_champion_patch_changes
+    description: >
+      Changements d'équilibrage annoncés par champion et par patch (notes de patch
+      scrapées jointes au référentiel champions). Se croise avec l'évolution du
+      winrate pour expliquer les mouvements de méta.
+    columns:
+      - name: patch
+        tests: [not_null]
+      - name: champion_name
+        tests: [not_null]
+
+  - name: gold_pro_champion_draft_by_patch
+    description: >
+      Méta professionnelle (Leaguepedia) : picks, bans, presence et winrate en
+      compétition par patch. Se compare à gold_champion_meta_by_patch (pro vs solo queue).
+    columns:
+      - name: patch
+        tests: [not_null]
+      - name: champion_name
+        tests: [not_null]
+      - name: presence
+        tests: [not_null]

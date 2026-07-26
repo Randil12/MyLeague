@@ -22,7 +22,7 @@ flowchart LR
     end
 
     subgraph DOCKER["DOCKER COMPOSE — stack MyLeague"]
-        AF["APACHE AIRFLOW<br/>orchestration : 7 pipelines planifiés"]
+        AF["APACHE AIRFLOW<br/>orchestration : 8 pipelines planifiés"]
 
         subgraph MED["ARCHITECTURE MÉDAILLON"]
             direction TB
@@ -74,7 +74,7 @@ flowchart LR
     class AF orch;
 ```
 
-### Les 7 pipelines Airflow
+### Les 8 pipelines Airflow
 
 | DAG | Rôle | Pattern | Fréquence |
 |---|---|---|---|
@@ -85,6 +85,7 @@ flowchart LR
 | `riot_live_spectator` | Parties en cours des joueurs suivis | Micro-batch temps réel | Toutes les 30 min |
 | `riot_academy_tracking` | Maîtrises des joueurs du club | ELT | Quotidien |
 | `dbt_transform` | Construction des tables d'analyse + tests qualité | ELT (T) | Quotidien |
+| `pipeline_health_monitoring` | Détection des échecs et retards, notification optionnelle | Monitoring | Toutes les 15 min |
 
 L'architecture en médaillon est répartie entre le data lake et l'entrepôt : **MinIO est la couche Bronze** et conserve les objets sources rejouables ; `raw` est la zone d'atterrissage SQL ; `staging` et `intermediate` forment ensemble la couche Silver ; `gold` est la couche de consommation. Les schémas `reference` et `audit` sont transverses : le premier fournit les dimensions versionnées, le second assure la traçabilité des traitements. Devise : *MinIO conserve, PostgreSQL calcule.*
 
@@ -322,6 +323,15 @@ Le référentiel (`dim_champion`, et de même `dim_item`, `dim_rune`, `dim_summo
 | Grafana | Dashboards méta + supervision | http://localhost:3000 |
 | Streamlit | Application web métier (coachs) | http://localhost:8501 |
 
+### Fonctionnalités métier Streamlit
+
+- **Tier list** : pickrate, banrate, présence et winrate avec seuil d'échantillon ;
+- **Préparation de draft** : recommandations explicables, filtres par rôle et confiance ;
+- **Évolution des patchs** : comparaison au patch précédent et rapprochement avec les notes officielles ;
+- **Plan d'entraînement** : écart entre le pool des joueurs academy et les priorités de la méta ;
+- **Builds et runes** : choix les plus fréquents et leurs performances ;
+- **Supervision** : derniers runs, volumes, erreurs et alertes actives.
+
 ## Démarrage rapide
 
 ```bash
@@ -343,8 +353,9 @@ docker compose up -d
 
 ```bash
 pip install -r requirements-dev.txt
-ruff check jobs tests      # lint
+ruff check jobs tests airflow/dags app  # lint
 pytest                     # tests unitaires
+dbt parse --no-partial-parse --project-dir dbt --profiles-dir dbt/profiles
 ```
 
 La CI GitHub Actions (`.github/workflows/ci.yml`) exécute lint, tests unitaires et validation du projet dbt à chaque push/PR.

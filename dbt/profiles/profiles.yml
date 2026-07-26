@@ -1,0 +1,12 @@
+myleague:
+  target: dev
+  outputs:
+    dev:
+      type: postgres
+      host: "{{ env_var('GOLD_POSTGRES_HOST', 'gold-postgres') }}"
+      port: "{{ env_var('GOLD_POSTGRES_PORT', '5432') | as_number }}"
+      user: "{{ env_var('GOLD_POSTGRES_USER', 'gold') }}"
+      password: "{{ env_var('GOLD_POSTGRES_PASSWORD', 'gold') }}"
+      dbname: "{{ env_var('GOLD_POSTGRES_DB', 'gold') }}"
+      schema: staging
+      threads: 4

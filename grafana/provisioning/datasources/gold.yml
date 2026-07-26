@@ -1,0 +1,19 @@
+apiVersion: 1
+
+datasources:
+  - name: Gold Postgres
+    uid: gold-postgres
+    type: postgres
+    access: proxy
+    url: gold-postgres:5432
+    # Moindre privilège : Grafana lit via le rôle data_analyst (SELECT sur gold/reference/audit uniquement)
+    user: $DATA_ANALYST_USER
+    isDefault: true
+    jsonData:
+      database: gold
+      sslmode: disable
+      postgresVersion: 1500
+      maxOpenConns: 5
+    secureJsonData:
+      password: $DATA_ANALYST_PASSWORD
+    editable: true

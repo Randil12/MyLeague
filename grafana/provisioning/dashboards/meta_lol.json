@@ -1,0 +1,159 @@
+{
+  "uid": "myleague-meta",
+  "title": "Méta LoL - Nexus Esport Academy",
+  "tags": ["myleague", "meta"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "5m",
+  "time": { "from": "now-90d", "to": "now" },
+  "templating": {
+    "list": [
+      {
+        "name": "patch",
+        "label": "Patch",
+        "type": "query",
+        "datasource": { "type": "postgres", "uid": "gold-postgres" },
+        "query": "SELECT DISTINCT patch FROM gold.gold_champion_meta_by_patch ORDER BY 1 DESC",
+        "refresh": 2,
+        "sort": 0
+      },
+      {
+        "name": "min_picks",
+        "label": "Picks minimum",
+        "type": "custom",
+        "query": "5,10,20,50",
+        "current": { "text": "10", "value": "10" },
+        "options": [
+          { "text": "5", "value": "5" },
+          { "text": "10", "value": "10", "selected": true },
+          { "text": "20", "value": "20" },
+          { "text": "50", "value": "50" }
+        ]
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Matchs analysés (patch $patch)",
+      "gridPos": { "h": 5, "w": 6, "x": 0, "y": 0 },
+      "datasource": { "type": "postgres", "uid": "gold-postgres" },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT total_matches FROM gold.gold_patch_summary WHERE patch = '$patch'"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Durée moyenne (min)",
+      "gridPos": { "h": 5, "w": 6, "x": 6, "y": 0 },
+      "datasource": { "type": "postgres", "uid": "gold-postgres" },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT avg_duration_min FROM gold.gold_patch_summary WHERE patch = '$patch'"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Champions joués",
+      "gridPos": { "h": 5, "w": 6, "x": 12, "y": 0 },
+      "datasource": { "type": "postgres", "uid": "gold-postgres" },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT count(*) FROM gold.gold_champion_meta_by_patch WHERE patch = '$patch'"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "table",
+      "title": "Tier list - Winrate par champion (>= $min_picks picks)",
+      "gridPos": { "h": 12, "w": 12, "x": 0, "y": 5 },
+      "datasource": { "type": "postgres", "uid": "gold-postgres" },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT champion_name AS \"Champion\", most_common_position AS \"Rôle\", picks AS \"Picks\", round(winrate * 100, 1) AS \"Winrate %\", round(pickrate * 100, 1) AS \"Pickrate %\", kda AS \"KDA\", avg_cs_per_min AS \"CS/min\" FROM gold.gold_champion_meta_by_patch WHERE patch = '$patch' AND picks >= $min_picks ORDER BY winrate DESC"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "barchart",
+      "title": "Top 15 pickrate (patch $patch)",
+      "gridPos": { "h": 12, "w": 12, "x": 12, "y": 5 },
+      "datasource": { "type": "postgres", "uid": "gold-postgres" },
+      "options": { "orientation": "horizontal" },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT champion_name, round(pickrate * 100, 1) AS pickrate_pct FROM gold.gold_champion_meta_by_patch WHERE patch = '$patch' ORDER BY pickrate DESC LIMIT 15"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "type": "table",
+      "title": "Évolution du winrate entre patchs (champions >= $min_picks picks)",
+      "gridPos": { "h": 10, "w": 24, "x": 0, "y": 17 },
+      "datasource": { "type": "postgres", "uid": "gold-postgres" },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT champion_name AS \"Champion\", patch AS \"Patch\", picks AS \"Picks\", round(winrate * 100, 1) AS \"Winrate %\", round((winrate - lag(winrate) OVER (PARTITION BY champion_name ORDER BY patch)) * 100, 1) AS \"Delta vs patch précédent\" FROM gold.gold_champion_meta_by_patch WHERE picks >= $min_picks ORDER BY champion_name, patch"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "type": "table",
+      "title": "Priorité de draft - Presence pick+ban (patch $patch)",
+      "gridPos": { "h": 11, "w": 12, "x": 0, "y": 27 },
+      "datasource": { "type": "postgres", "uid": "gold-postgres" },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT champion_name AS \"Champion\", round(presence * 100, 1) AS \"Presence %\", round(banrate * 100, 1) AS \"Banrate %\", round(pickrate * 100, 1) AS \"Pickrate %\", round(coalesce(winrate, 0) * 100, 1) AS \"Winrate %\" FROM gold.gold_champion_bans_by_patch WHERE patch = '$patch' ORDER BY presence DESC LIMIT 30"
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "type": "table",
+      "title": "Builds gagnants - items par champion (patch $patch, >= 10 builds)",
+      "gridPos": { "h": 11, "w": 12, "x": 12, "y": 27 },
+      "datasource": { "type": "postgres", "uid": "gold-postgres" },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT champion_name AS \"Champion\", item_name AS \"Item\", times_built AS \"Builds\", round(winrate * 100, 1) AS \"Winrate %\" FROM gold.gold_champion_items_by_patch WHERE patch = '$patch' AND times_built >= 10 ORDER BY winrate DESC LIMIT 30"
+        }
+      ]
+    }
+  ]
+}

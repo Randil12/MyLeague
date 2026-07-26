@@ -8,17 +8,17 @@ from pathlib import Path
 from typing import Any
 
 from jobs.riot.client import (
+    get_league_entries,
     get_master_plus_entries,
     get_match,
     get_match_ids_by_puuid,
-    get_summoner_by_id,
+    get_match_timeline,
     write_json,
 )
 
-
 DEFAULT_RAW_DIR = Path("data/bronze/riot")
 DEFAULT_MINIO_PREFIX = "bronze/riot"
-REGION = "EUW1"
+REGION = "euw1"
 ROUTING = "europe"
 QUEUE_ID = 420
 QUEUE_NAME = "ranked_solo_5x5"
@@ -153,6 +153,28 @@ def init_audit_tables(conn) -> None:
             )
             """
         )
+        cur.execute(
+            "ALTER TABLE audit.riot_tracked_players "
+            "ADD COLUMN IF NOT EXISTS tracking_source TEXT NOT NULL DEFAULT 'ladder'"
+        )
+        cur.execute(
+            "ALTER TABLE audit.riot_match_ingestion ADD COLUMN IF NOT EXISTS timeline_status TEXT"
+        )
+        cur.execute(
+            "ALTER TABLE audit.riot_match_ingestion ADD COLUMN IF NOT EXISTS timeline_uri TEXT"
+        )
+        cur.execute(
+            "ALTER TABLE audit.riot_match_ingestion "
+            "ADD COLUMN IF NOT EXISTS timeline_retry_count INTEGER NOT NULL DEFAULT 0"
+        )
+        cur.execute(
+            "UPDATE audit.riot_tracked_players SET region = %s WHERE region = %s",
+            (REGION, REGION.upper()),
+        )
+        cur.execute(
+            "UPDATE audit.riot_match_ingestion SET region = %s WHERE region = %s",
+            (REGION, REGION.upper()),
+        )
     conn.commit()
 
 
@@ -201,8 +223,12 @@ def save_payload(
     minio_key: str,
     minio_config: dict[str, str | None],
 ) -> str:
-    write_json(payload, local_path)
+    """Écrit l'objet en zone bronze.
 
+    MinIO est l'unique zone bronze quand il est configuré (cas nominal en Docker) :
+    pas de copie locale redondante. Sans MinIO (exécution hors conteneur), on
+    bascule en écriture locale — mode dégradé assumé.
+    """
     if is_minio_enabled(minio_config):
         upload_json_to_minio(
             payload,
@@ -215,6 +241,7 @@ def save_payload(
         )
         return f"s3://{minio_config['bucket']}/{minio_key}"
 
+    write_json(payload, local_path)
     return str(local_path)
 
 
@@ -252,6 +279,7 @@ def upsert_tracked_player(conn, entry: dict[str, Any], summoner: dict[str, Any],
             )
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, TRUE, TRUE, %s)
             ON CONFLICT (puuid) DO UPDATE SET
+                region = EXCLUDED.region,
                 summoner_id = EXCLUDED.summoner_id,
                 account_id = EXCLUDED.account_id,
                 profile_icon_id = EXCLUDED.profile_icon_id,
@@ -336,6 +364,7 @@ def register_match_ids(conn, match_ids: list[str], source_puuid: str, run_id: st
                 INSERT INTO audit.riot_match_ingestion (region, match_id, source_puuid, run_id, status)
                 VALUES (%s, %s, %s, %s, 'pending')
                 ON CONFLICT (match_id) DO UPDATE SET
+                    region = EXCLUDED.region,
                     source_puuid = COALESCE(audit.riot_match_ingestion.source_puuid, EXCLUDED.source_puuid),
                     run_id = EXCLUDED.run_id,
                     updated_at = NOW()
@@ -419,13 +448,19 @@ def snapshot_master_plus_players(
     errors = []
     seen_puuids: set[str] = set()
     for entry in entries:
-        encrypted_summoner_id = entry.get("summonerId")
-        if not encrypted_summoner_id:
-            errors.append({"stage": "snapshot_summoner", "entry": entry, "error": "missing summonerId"})
+        puuid = entry.get("puuid")
+        if not puuid:
+            errors.append({"stage": "snapshot_player", "entry": entry, "error": "missing puuid"})
             continue
+
         try:
-            summoner = get_summoner_by_id(encrypted_summoner_id)
-            puuid = summoner["puuid"]
+            summoner = {
+                "puuid": puuid,
+                "id": entry.get("summonerId"),
+                "accountId": entry.get("accountId"),
+                "name": entry.get("summonerName"),
+                "source": "league-v4",
+            }
             seen_puuids.add(puuid)
             upsert_tracked_player(conn, entry, summoner, snapshot_started_at)
 
@@ -440,14 +475,134 @@ def snapshot_master_plus_players(
         except Exception as exc:  # noqa: BLE001 - keep snapshot resilient per player.
             errors.append(
                 {
-                    "stage": "snapshot_summoner",
-                    "summonerId": encrypted_summoner_id,
+                    "stage": "snapshot_player",
+                    "puuid": puuid,
                     "error": str(exc),
                 }
             )
 
     mark_absent_players_not_current(conn, seen_puuids, snapshot_started_at)
     return entries, errors, seen_puuids
+
+
+def parse_extra_tiers(spec: str) -> list[tuple[str, str, int]]:
+    """Parse 'DIAMOND:I:1,EMERALD:I:1' -> [(tier, division, pages)]."""
+    configs: list[tuple[str, str, int]] = []
+    for part in (spec or "").split(","):
+        part = part.strip()
+        if not part:
+            continue
+        bits = part.split(":")
+        tier = bits[0].upper()
+        division = bits[1].upper() if len(bits) > 1 and bits[1] else "I"
+        pages = int(bits[2]) if len(bits) > 2 and bits[2] else 1
+        configs.append((tier, division, pages))
+    return configs
+
+
+def upsert_lower_tier_player(conn, entry: dict[str, Any], seen_at: datetime) -> None:
+    """Joueur des tiers non-apex (Diamond, Emerald...) pour comparer la méta par elo."""
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO audit.riot_tracked_players (
+                region,
+                puuid,
+                summoner_id,
+                riot_summoner_name,
+                tier,
+                rank,
+                league_points,
+                wins,
+                losses,
+                queue_type,
+                first_seen_master_plus_at,
+                last_seen_master_plus_at,
+                is_currently_master_plus,
+                is_tracked,
+                tracking_source,
+                updated_at
+            )
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, FALSE, TRUE, 'ladder', %s)
+            ON CONFLICT (puuid) DO UPDATE SET
+                tier = EXCLUDED.tier,
+                rank = EXCLUDED.rank,
+                league_points = EXCLUDED.league_points,
+                wins = EXCLUDED.wins,
+                losses = EXCLUDED.losses,
+                queue_type = EXCLUDED.queue_type,
+                last_seen_master_plus_at = EXCLUDED.last_seen_master_plus_at,
+                updated_at = EXCLUDED.updated_at
+            """,
+            (
+                REGION,
+                entry["puuid"],
+                entry.get("summonerId"),
+                entry.get("summonerName"),
+                entry.get("tier"),
+                entry.get("rank"),
+                entry.get("leaguePoints"),
+                entry.get("wins"),
+                entry.get("losses"),
+                entry.get("queueType"),
+                seen_at,
+                seen_at,
+                seen_at,
+            ),
+        )
+    conn.commit()
+
+
+def snapshot_extra_tier_entries(
+    conn,
+    raw_path: Path,
+    minio_config: dict[str, str | None],
+    minio_prefix: str,
+    run_id: str,
+    extra_tiers_spec: str,
+) -> tuple[int, list[dict[str, Any]]]:
+    """Échantillonne des tiers inférieurs (league-v4 entries) pour la méta par niveau de jeu."""
+    seen_at = utc_now()
+    seen_count = 0
+    errors: list[dict[str, Any]] = []
+
+    for tier, division, pages in parse_extra_tiers(extra_tiers_spec):
+        for page in range(1, pages + 1):
+            try:
+                entries = get_league_entries(tier, division, page=page)
+            except Exception as exc:  # noqa: BLE001 - keep snapshot resilient per tier.
+                errors.append(
+                    {"stage": "extra_tier_entries", "tier": tier, "division": division,
+                     "page": page, "error": str(exc)}
+                )
+                continue
+
+            entries_path = (
+                f"queue={QUEUE_NAME}/tier={tier}/division={division}"
+                f"/page={page}/run_id={run_id}/ranked_entries.json"
+            )
+            save_payload(
+                entries,
+                build_local_path(raw_path, "ranked_entries", entries_path),
+                build_key("ranked_entries", entries_path, minio_prefix),
+                minio_config,
+            )
+
+            for entry in entries:
+                puuid = entry.get("puuid")
+                if not puuid:
+                    continue
+                try:
+                    upsert_lower_tier_player(
+                        conn, {**entry, "tier": entry.get("tier", tier)}, seen_at
+                    )
+                    seen_count += 1
+                except Exception as exc:  # noqa: BLE001
+                    errors.append(
+                        {"stage": "extra_tier_player", "puuid": puuid, "error": str(exc)}
+                    )
+
+    return seen_count, errors
 
 
 def select_retriable_matches(conn, limit: int) -> list[str]:
@@ -469,6 +624,85 @@ def select_retriable_matches(conn, limit: int) -> list[str]:
         return [row[0] for row in cur.fetchall()]
 
 
+def mark_timeline_result(conn, match_id: str, status: str, timeline_uri: str | None) -> None:
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            UPDATE audit.riot_match_ingestion
+            SET timeline_status = %s,
+                timeline_uri = %s,
+                timeline_retry_count = timeline_retry_count
+                    + CASE WHEN %s = 'failed' THEN 1 ELSE 0 END,
+                updated_at = NOW()
+            WHERE match_id = %s
+            """,
+            (status, timeline_uri, status, match_id),
+        )
+    conn.commit()
+
+
+def mark_match_not_found(conn, match_id: str, run_id: str, error_message: str) -> None:
+    """Match définitivement introuvable (404) : exclu des retries, on ne gaspille plus de quota."""
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            UPDATE audit.riot_match_ingestion
+            SET status = 'not_found',
+                run_id = %s,
+                error_message = %s,
+                updated_at = NOW()
+            WHERE match_id = %s
+            """,
+            (run_id, error_message[:2000], match_id),
+        )
+    conn.commit()
+
+
+def select_retriable_timelines(conn, limit: int) -> list[str]:
+    """Matchs OK dont la timeline a échoué : retentés jusqu'à 5 fois."""
+    if limit <= 0:
+        return []
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT match_id
+            FROM audit.riot_match_ingestion
+            WHERE region = %s
+              AND status = 'success'
+              AND timeline_status = 'failed'
+              AND timeline_retry_count < 5
+            ORDER BY updated_at ASC
+            LIMIT %s
+            """,
+            (REGION, limit),
+        )
+        return [row[0] for row in cur.fetchall()]
+
+
+def ingest_timeline_payload(
+    conn,
+    raw_path: Path,
+    minio_config: dict[str, str | None],
+    minio_prefix: str,
+    match_id: str,
+) -> dict[str, Any] | None:
+    """Timeline du match (analyse par phase de jeu). Non bloquant : le match reste success."""
+    try:
+        timeline_payload = get_match_timeline(match_id)
+        timeline_path = f"match_id={match_id}/timeline.json"
+        timeline_uri = save_payload(
+            timeline_payload,
+            build_local_path(raw_path, "timelines", timeline_path),
+            build_key("timelines", timeline_path, minio_prefix),
+            minio_config,
+        )
+        mark_timeline_result(conn, match_id, "success", timeline_uri)
+        return None
+    except Exception as exc:  # noqa: BLE001 - timeline failure must not fail the match.
+        mark_timeline_result(conn, match_id, "failed", None)
+        return {"stage": "timeline", "matchId": match_id, "error": str(exc)}
+
+
 def ingest_match_payload(
     conn,
     raw_path: Path,
@@ -476,6 +710,7 @@ def ingest_match_payload(
     minio_prefix: str,
     run_id: str,
     match_id: str,
+    ingest_timeline: bool = False,
 ) -> tuple[bool, dict[str, Any] | None]:
     try:
         match_payload = get_match(match_id)
@@ -487,8 +722,18 @@ def ingest_match_payload(
             minio_config,
         )
         mark_match_success(conn, match_id, run_id, bronze_uri)
-        return True, None
+
+        timeline_error = None
+        if ingest_timeline:
+            timeline_error = ingest_timeline_payload(
+                conn, raw_path, minio_config, minio_prefix, match_id
+            )
+        return True, timeline_error
     except Exception as exc:  # noqa: BLE001 - keep ingestion resilient per match.
+        # 404 = match supprimé/inexistant côté Riot : inutile de le retenter.
+        if getattr(exc, "status_code", None) == 404:
+            mark_match_not_found(conn, match_id, run_id, str(exc))
+            return False, {"stage": "match", "matchId": match_id, "error": "not_found (404)"}
         mark_match_failed(conn, match_id, run_id, str(exc))
         return False, {"stage": "match", "matchId": match_id, "error": str(exc)}
 
@@ -502,6 +747,7 @@ def ingest_tracked_player_matches(
     max_players: int,
     matches_per_player: int,
     max_matches_per_run: int,
+    ingest_timelines: bool = False,
 ) -> tuple[int, int, list[dict[str, Any]]]:
     errors = []
     loaded_matches = 0
@@ -514,12 +760,23 @@ def ingest_tracked_player_matches(
     for match_id in retriable_match_ids:
         if match_attempts >= max_matches_per_run:
             break
-        success, error = ingest_match_payload(conn, raw_path, minio_config, minio_prefix, run_id, match_id)
+        success, error = ingest_match_payload(
+            conn, raw_path, minio_config, minio_prefix, run_id, match_id, ingest_timelines
+        )
         match_attempts += 1
         if success:
             loaded_matches += 1
-        elif error:
+        if error:
             errors.append(error)
+
+    # Rattrapage des timelines en échec sur des matchs déjà ingérés (budget limité).
+    if ingest_timelines:
+        for match_id in select_retriable_timelines(conn, limit=50):
+            timeline_error = ingest_timeline_payload(
+                conn, raw_path, minio_config, minio_prefix, match_id
+            )
+            if timeline_error:
+                errors.append(timeline_error)
 
     players = select_players_for_match_ingestion(conn, max_players)
 
@@ -562,11 +819,12 @@ def ingest_tracked_player_matches(
                     minio_prefix,
                     run_id,
                     match_id,
+                    ingest_timelines,
                 )
                 match_attempts += 1
                 if success:
                     loaded_matches += 1
-                elif error:
+                if error:
                     errors.append(error)
 
             update_player_ingestion_timestamp(conn, puuid, end_dt)
@@ -575,6 +833,192 @@ def ingest_tracked_player_matches(
 
     return len(unique_match_ids), loaded_matches, errors
 
+
+def make_run_id() -> str:
+    return utc_now().strftime("%Y%m%dT%H%M%SZ")
+
+
+def summarize_errors(errors: list[dict[str, Any]], sample_size: int = 20) -> dict[str, Any]:
+    return {
+        "count": len(errors),
+        "samples": errors[:sample_size],
+    }
+
+
+def prepare_riot_run(run_id: str | None = None) -> dict[str, Any]:
+    current_run_id = run_id or make_run_id()
+    conn = get_gold_conn()
+    try:
+        init_audit_tables(conn)
+        start_pipeline_run(conn, current_run_id)
+        return {
+            "run_id": current_run_id,
+            "region": REGION,
+            "routing": ROUTING,
+            "queue_id": QUEUE_ID,
+            "queue_name": QUEUE_NAME,
+        }
+    finally:
+        conn.close()
+
+
+def run_snapshot_stage(
+    run_id: str,
+    raw_dir: str | Path = DEFAULT_RAW_DIR,
+    minio_prefix: str = DEFAULT_MINIO_PREFIX,
+    extra_tiers: str = "",
+) -> dict[str, Any]:
+    raw_path = Path(raw_dir)
+    minio_config = get_minio_config()
+    conn = get_gold_conn()
+    try:
+        init_audit_tables(conn)
+        entries, errors, seen_puuids = snapshot_master_plus_players(
+            conn,
+            raw_path,
+            minio_config,
+            minio_prefix,
+            run_id,
+        )
+
+        extra_tier_seen = 0
+        if extra_tiers:
+            extra_tier_seen, extra_tier_errors = snapshot_extra_tier_entries(
+                conn,
+                raw_path,
+                minio_config,
+                minio_prefix,
+                run_id,
+                extra_tiers,
+            )
+            errors = list(errors) + extra_tier_errors
+
+        return {
+            "run_id": run_id,
+            "snapshot_entries": len(entries),
+            "snapshot_seen_puuids": len(seen_puuids),
+            "extra_tier_players_seen": extra_tier_seen,
+            "snapshot_error_count": len(errors),
+            "snapshot_error_samples": errors[:20],
+        }
+    finally:
+        conn.close()
+
+
+def run_match_ingestion_stage(
+    run_id: str,
+    raw_dir: str | Path = DEFAULT_RAW_DIR,
+    minio_prefix: str = DEFAULT_MINIO_PREFIX,
+    lookback_days: int = 7,
+    max_players: int = 25,
+    matches_per_player: int = 10,
+    max_matches_per_run: int = 250,
+    ingest_timelines: bool = False,
+) -> dict[str, Any]:
+    raw_path = Path(raw_dir)
+    minio_config = get_minio_config()
+    conn = get_gold_conn()
+    try:
+        init_audit_tables(conn)
+        unique_match_ids, loaded_matches, errors = ingest_tracked_player_matches(
+            conn,
+            raw_path,
+            minio_config,
+            minio_prefix,
+            run_id,
+            lookback_days,
+            max_players,
+            matches_per_player,
+            max_matches_per_run,
+            ingest_timelines,
+        )
+        return {
+            "run_id": run_id,
+            "unique_match_ids_seen_this_run": unique_match_ids,
+            "matches_loaded": loaded_matches,
+            "match_error_count": len(errors),
+            "match_error_samples": errors[:20],
+        }
+    finally:
+        conn.close()
+
+
+def finalize_riot_run(
+    run_id: str,
+    snapshot_summary: dict[str, Any],
+    match_summary: dict[str, Any],
+    raw_dir: str | Path = DEFAULT_RAW_DIR,
+    minio_prefix: str = DEFAULT_MINIO_PREFIX,
+    lookback_days: int = 7,
+    max_players: int = 25,
+    matches_per_player: int = 10,
+    max_matches_per_run: int = 250,
+) -> dict[str, Any]:
+    raw_path = Path(raw_dir)
+    minio_config = get_minio_config()
+    snapshot_error_count = int(snapshot_summary.get("snapshot_error_count", 0))
+    match_error_count = int(match_summary.get("match_error_count", 0))
+    total_error_count = snapshot_error_count + match_error_count
+    snapshot_entries = int(snapshot_summary.get("snapshot_entries", 0))
+    snapshot_seen_puuids = int(snapshot_summary.get("snapshot_seen_puuids", 0))
+    unique_match_ids = int(match_summary.get("unique_match_ids_seen_this_run", 0))
+    loaded_matches = int(match_summary.get("matches_loaded", 0))
+
+    manifest = {
+        "run_id": run_id,
+        "region": REGION,
+        "routing": ROUTING,
+        "queue_id": QUEUE_ID,
+        "queue_name": QUEUE_NAME,
+        "lookback_days": lookback_days,
+        "max_players": max_players,
+        "matches_per_player": matches_per_player,
+        "max_matches_per_run": max_matches_per_run,
+        "snapshot_entries": snapshot_entries,
+        "snapshot_seen_puuids": snapshot_seen_puuids,
+        "unique_match_ids_seen_this_run": unique_match_ids,
+        "matches_loaded": loaded_matches,
+        "error_count": total_error_count,
+        "snapshot_error_count": snapshot_error_count,
+        "match_error_count": match_error_count,
+        "snapshot_error_samples": snapshot_summary.get("snapshot_error_samples", []),
+        "match_error_samples": match_summary.get("match_error_samples", []),
+    }
+    manifest_path = f"run_id={run_id}/manifest.json"
+    manifest_uri = save_payload(
+        manifest,
+        build_local_path(raw_path, "manifests", manifest_path),
+        build_key("manifests", manifest_path, minio_prefix),
+        minio_config,
+    )
+
+    status = "success" if total_error_count == 0 else "partial_success"
+    conn = get_gold_conn()
+    try:
+        init_audit_tables(conn)
+        finish_pipeline_run(
+            conn,
+            run_id,
+            status=status,
+            records_read=snapshot_entries + unique_match_ids,
+            records_written=snapshot_seen_puuids + loaded_matches,
+            error_count=total_error_count,
+        )
+    finally:
+        conn.close()
+
+    return {
+        "run_id": run_id,
+        "region": REGION,
+        "routing": ROUTING,
+        "snapshot_entries": snapshot_entries,
+        "tracked_players_seen": snapshot_seen_puuids,
+        "unique_match_ids_seen_this_run": unique_match_ids,
+        "matches_loaded": loaded_matches,
+        "error_count": total_error_count,
+        "manifest": manifest_uri,
+        "status": status,
+    }
 
 def run(
     raw_dir: str | Path = DEFAULT_RAW_DIR,
@@ -691,7 +1135,7 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-if __name__ == "__main__":
+if __name__ == "__main__":  # pragma: no cover
     args = parse_args()
     result = run(
         raw_dir=args.raw_dir,
@@ -703,6 +1147,11 @@ if __name__ == "__main__":
     )
     for key, value in result.items():
         print(f"{key}={value}")
+
+
+
+
+
 
 
 

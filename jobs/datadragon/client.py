@@ -6,7 +6,6 @@ from typing import Any
 from urllib.parse import quote
 from urllib.request import urlopen
 
-
 DATA_DRAGON_BASE_URL = "https://ddragon.leagueoflegends.com"
 
 
@@ -51,6 +50,13 @@ def get_items(version: str, locale: str = "fr_FR") -> dict[str, Any]:
 def get_summoner_spells(version: str, locale: str = "fr_FR") -> dict[str, Any]:
     return fetch_json(
         f"{DATA_DRAGON_BASE_URL}/cdn/{version}/data/{locale}/summoner.json"
+    )
+
+
+def get_runes(version: str, locale: str = "fr_FR") -> list[dict[str, Any]]:
+    """Arbres de runes (runesReforged) : styles, slots et runes dont les keystones."""
+    return fetch_json(
+        f"{DATA_DRAGON_BASE_URL}/cdn/{version}/data/{locale}/runesReforged.json"
     )
 
 
