@@ -1,5 +1,5 @@
 # MyLeague — Plateforme data d'analyse de la méta League of Legends
-
+a
 Projet de fin d'études (RNCP 39586 — Ingénieur en science des données).
 
 **Commanditaire (fictif)** : Nexus Esport Academy, structure e-sport accompagnant joueurs et équipes dans leur progression.
