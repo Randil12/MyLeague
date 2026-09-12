@@ -1,0 +1,112 @@
+{
+  "generated_at_utc": "2026-07-27T23:12:18.337523+00:00",
+  "source": "PostgreSQL Gold — MyLeague",
+  "alpha": 0.05,
+  "minimum_picks_per_patch": 5,
+  "coverage": [
+    {
+      "patch": "16.06",
+      "solo_matches": 0,
+      "pro_matches": 215
+    },
+    {
+      "patch": "16.07",
+      "solo_matches": 0,
+      "pro_matches": 806
+    },
+    {
+      "patch": "16.08",
+      "solo_matches": 0,
+      "pro_matches": 784
+    },
+    {
+      "patch": "16.09",
+      "solo_matches": 0,
+      "pro_matches": 864
+    },
+    {
+      "patch": "16.10",
+      "solo_matches": 0,
+      "pro_matches": 895
+    },
+    {
+      "patch": "16.11",
+      "solo_matches": 0,
+      "pro_matches": 538
+    },
+    {
+      "patch": "16.12",
+      "solo_matches": 58,
+      "pro_matches": 236
+    },
+    {
+      "patch": "16.13",
+      "solo_matches": 222,
+      "pro_matches": 490
+    },
+    {
+      "patch": "16.14",
+      "solo_matches": 1055,
+      "pro_matches": 358
+    }
+  ],
+  "patch_changes": [
+    {
+      "patch": "16.12",
+      "changed_champions": 14
+    },
+    {
+      "patch": "16.13",
+      "changed_champions": 18
+    },
+    {
+      "patch": "16.14",
+      "changed_champions": 10
+    }
+  ],
+  "spearman_by_patch": [
+    {
+      "patch": "16.12",
+      "n": 38,
+      "rho": 0.364148,
+      "p_value": 0.0246038623,
+      "decision": "H0 rejetée"
+    },
+    {
+      "patch": "16.13",
+      "n": 105,
+      "rho": 0.27303,
+      "p_value": 0.0048326508,
+      "decision": "H0 rejetée"
+    },
+    {
+      "patch": "16.14",
+      "n": 137,
+      "rho": 0.450512,
+      "p_value": 3.31e-08,
+      "decision": "H0 rejetée"
+    }
+  ],
+  "mann_whitney_pooled_transitions": {
+    "n_changed": 9,
+    "n_control": 159,
+    "median_changed": 0.0806,
+    "median_control": 0.1122,
+    "median_difference": -0.0316,
+    "median_difference_bootstrap_ci95": [
+      -0.0722,
+      0.09724
+    ],
+    "u_statistic": 639.0,
+    "p_value": 0.5924008819,
+    "rank_biserial": -0.106918,
+    "decision": "H0 non rejetée"
+  },
+  "limitations": [
+    "Les parties solo queue proviennent de joueurs suivis sur EUW et non d'un tirage aléatoire.",
+    "Les parties professionnelles Leaguepedia couvrent plusieurs compétitions mondiales.",
+    "Une même identité de champion peut apparaître sur plusieurs transitions de patch.",
+    "L'intervalle bootstrap décrit la stabilité de la médiane observée, pas une causalité.",
+    "Les résultats restent exploratoires et doivent être complétés par l'expertise du staff."
+  ]
+}

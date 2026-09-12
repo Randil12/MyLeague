@@ -1,0 +1,167 @@
+{
+  "generated_from": "PostgreSQL gold — MyLeague",
+  "generated_at_utc": "2026-07-28T00:01:39.525916+00:00",
+  "latest_patch": "16.14",
+  "alpha": 0.05,
+  "minimum_picks_per_patch": 5,
+  "patches": [
+    {
+      "patch": "16.12",
+      "total_matches": 58,
+      "avg_duration_min": 26.8
+    },
+    {
+      "patch": "16.13",
+      "total_matches": 222,
+      "avg_duration_min": 26.7
+    },
+    {
+      "patch": "16.14",
+      "total_matches": 1055,
+      "avg_duration_min": 27.2
+    }
+  ],
+  "draft": {
+    "champions_analyzed": 170,
+    "top_recommendations": [
+      {
+        "champion_name": "Locke",
+        "role": "MIDDLE",
+        "priority_score": 65.3,
+        "confidence_level": "moyenne",
+        "recommendation": "Priorité de pick / ban",
+        "picks": 151,
+        "winrate": 0.5033,
+        "presence": 0.9498,
+        "pro_presence": 0.7095
+      },
+      {
+        "champion_name": "Syndra",
+        "role": "BOTTOM",
+        "priority_score": 48.5,
+        "confidence_level": "moyenne",
+        "recommendation": "Pick de rotation",
+        "picks": 212,
+        "winrate": 0.4906,
+        "presence": 0.4597,
+        "pro_presence": 0.6145
+      },
+      {
+        "champion_name": "Camille",
+        "role": "UTILITY",
+        "priority_score": 47.8,
+        "confidence_level": "moyenne",
+        "recommendation": "Pick de rotation",
+        "picks": 210,
+        "winrate": 0.5286,
+        "presence": 0.472,
+        "pro_presence": 0.5251
+      },
+      {
+        "champion_name": "Sylas",
+        "role": "JUNGLE",
+        "priority_score": 44.0,
+        "confidence_level": "moyenne",
+        "recommendation": "Pick situationnel",
+        "picks": 237,
+        "winrate": 0.5063,
+        "presence": 0.4825,
+        "pro_presence": 0.2291
+      },
+      {
+        "champion_name": "Jayce",
+        "role": "TOP",
+        "priority_score": 38.2,
+        "confidence_level": "moyenne",
+        "recommendation": "Pick situationnel",
+        "picks": 172,
+        "winrate": 0.5116,
+        "presence": 0.327,
+        "pro_presence": 0.5084
+      },
+      {
+        "champion_name": "Ezreal",
+        "role": "BOTTOM",
+        "priority_score": 32.9,
+        "confidence_level": "moyenne",
+        "recommendation": "Pick situationnel",
+        "picks": 162,
+        "winrate": 0.4753,
+        "presence": 0.2313,
+        "pro_presence": 0.5112
+      },
+      {
+        "champion_name": "Talon",
+        "role": "JUNGLE",
+        "priority_score": 31.6,
+        "confidence_level": "faible",
+        "recommendation": "À surveiller — échantillon insuffisant",
+        "picks": 98,
+        "winrate": 0.5306,
+        "presence": 0.3697,
+        "pro_presence": null
+      },
+      {
+        "champion_name": "Viktor",
+        "role": "BOTTOM",
+        "priority_score": 29.7,
+        "confidence_level": "moyenne",
+        "recommendation": "Pick situationnel",
+        "picks": 163,
+        "winrate": 0.4969,
+        "presence": 0.236,
+        "pro_presence": 0.3128
+      },
+      {
+        "champion_name": "Nautilus",
+        "role": "UTILITY",
+        "priority_score": 29.5,
+        "confidence_level": "moyenne",
+        "recommendation": "Pick situationnel",
+        "picks": 133,
+        "winrate": 0.4662,
+        "presence": 0.2171,
+        "pro_presence": 0.4944
+      },
+      {
+        "champion_name": "Ambessa",
+        "role": "TOP",
+        "priority_score": 29.3,
+        "confidence_level": "moyenne",
+        "recommendation": "Pick situationnel",
+        "picks": 125,
+        "winrate": 0.576,
+        "presence": 0.218,
+        "pro_presence": 0.405
+      }
+    ]
+  },
+  "hypothesis_1": {
+    "question": "La présence professionnelle est-elle positivement associée à la présence solo queue ?",
+    "null_hypothesis": "Il n'existe pas d'association monotone entre les deux présences.",
+    "test": "Corrélation de rang de Spearman, bilatérale",
+    "n": 137,
+    "rho": 0.450512,
+    "p_value": 3e-08,
+    "decision": "Rejet de H0 : association statistiquement significative."
+  },
+  "hypothesis_2": {
+    "question": "Les champions modifiés officiellement présentent-ils une amplitude de variation du winrate différente des autres champions ?",
+    "null_hypothesis": "Les distributions de |Δ winrate| sont identiques.",
+    "test": "Mann–Whitney U bilatéral",
+    "n_changed": 6,
+    "n_unchanged": 122,
+    "changed_mean_absolute_delta": 0.105683,
+    "unchanged_mean_absolute_delta": 0.119905,
+    "u_statistic": 276.0,
+    "p_value": 0.31299949,
+    "decision": "H0 non rejetée : effet non démontré. Le faible nombre de champions modifiés impose de poursuivre la collecte."
+  },
+  "limitations": [
+    "Échantillon solo queue limité à EUW et aux joueurs suivis.",
+    "Les champions peu joués sont exclus des tests principaux.",
+    "Une corrélation ne démontre pas une causalité.",
+    "Le nombre de champions modifiés disposant d'assez de picks est faible.",
+    "Les recommandations assistent le coach et ne remplacent pas son expertise."
+  ]
+}
