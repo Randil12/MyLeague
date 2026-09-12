@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import timedelta
 
 from airflow.sdk import dag, task
+from pendulum import datetime
 
 DBT_DIR = "/opt/airflow/dbt"
 PROFILES_DIR = f"{DBT_DIR}/profiles"
@@ -14,8 +15,8 @@ PROFILES_DIR = f"{DBT_DIR}/profiles"
         "ELT - étape Transform : dbt construit staging -> intermediate -> gold "
         "à partir de raw.riot_matches et reference.dim_*, puis exécute les tests dbt."
     ),
-    schedule="@daily",
-    start_date=datetime(2026, 1, 1),
+    schedule="0 2-23/3 * * *",  # UTC : 2 h apres chaque depart Riot (README.md).
+    start_date=datetime(2026, 1, 1, tz="UTC"),
     catchup=False,
     max_active_runs=1,
     dagrun_timeout=timedelta(minutes=30),

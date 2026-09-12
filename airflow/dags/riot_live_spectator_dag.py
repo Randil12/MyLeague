@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import os
-from datetime import datetime, timedelta
+from datetime import timedelta
 
 from airflow.sdk import dag, task
+from pendulum import datetime
 
 RAW_DIR = "/opt/airflow/data/bronze/riot"
 
@@ -15,7 +16,7 @@ RAW_DIR = "/opt/airflow/data/bronze/riot"
         "en cours des joueurs suivis via spectator-v5 (drafts/compositions live)."
     ),
     schedule="*/30 * * * *",
-    start_date=datetime(2026, 1, 1),
+    start_date=datetime(2026, 1, 1, tz="UTC"),
     catchup=False,
     max_active_runs=1,
     dagrun_timeout=timedelta(minutes=25),

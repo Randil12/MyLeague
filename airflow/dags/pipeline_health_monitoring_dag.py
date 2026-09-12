@@ -1,15 +1,16 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import timedelta
 
 from airflow.sdk import dag, task
+from pendulum import datetime
 
 
 @dag(
     dag_id="pipeline_health_monitoring",
     description="Détecte les pipelines en échec ou obsolètes et notifie un webhook optionnel.",
     schedule="*/15 * * * *",
-    start_date=datetime(2026, 1, 1),
+    start_date=datetime(2026, 1, 1, tz="UTC"),
     catchup=False,
     max_active_runs=1,
     dagrun_timeout=timedelta(minutes=5),
@@ -27,4 +28,3 @@ def pipeline_health_monitoring() -> None:
 
 
 pipeline_health_monitoring()
-

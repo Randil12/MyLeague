@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import os
-from datetime import datetime, timedelta
+from datetime import timedelta
 
 from airflow.sdk import dag, task
+from pendulum import datetime
 
 RAW_DIR = "/opt/airflow/data/bronze/leaguepedia"
 
@@ -14,8 +15,8 @@ RAW_DIR = "/opt/airflow/data/bronze/leaguepedia"
         "ELT Leaguepedia : tournois, équipes, joueurs et parties professionnelles "
         "(picks/bans par patch) via l'API Cargo — comparaison méta pro vs solo queue."
     ),
-    schedule="@daily",
-    start_date=datetime(2026, 1, 1),
+    schedule="0 1,7,13,19 * * *",  # UTC : toutes les 6 h, avant dbt (README.md).
+    start_date=datetime(2026, 1, 1, tz="UTC"),
     catchup=False,
     max_active_runs=1,
     dagrun_timeout=timedelta(minutes=45),

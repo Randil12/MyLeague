@@ -8,9 +8,10 @@ from pendulum import datetime
 
 @dag(
     dag_id="riot_historical_backfill",
-    schedule=None,
+    schedule=None,  # Rattrapage coûteux : déclenchement manuel uniquement.
     start_date=datetime(2026, 1, 1, tz="UTC"),
     catchup=False,
+    max_active_runs=1,
     tags=["riot", "historical", "bloc2", "manual"],
     description=(
         "Rattrape 60 jours de matchs des joueurs déjà suivis sans rescanner "

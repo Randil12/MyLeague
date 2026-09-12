@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import timedelta
 
 from airflow.sdk import dag, task
+from pendulum import datetime
 
 RAW_DIR = "/opt/airflow/data/bronze/riot"
 
@@ -10,12 +11,12 @@ RAW_DIR = "/opt/airflow/data/bronze/riot"
 @dag(
     dag_id="riot_academy_tracking",
     description=(
-        "Suivi des joueurs de Nexus Esport Academy : capture quotidienne de leur pool "
+        "Suivi des joueurs de Nexus Esport Academy : capture biquotidienne de leur pool "
         "de champions (champion-mastery-v4). Enregistrer un joueur : "
         "python -m jobs.riot.academy register --riot-id 'GameName#TAG'"
     ),
-    schedule="@daily",
-    start_date=datetime(2026, 1, 1),
+    schedule="45 4,16 * * *",  # UTC : hors du timeout Riot de 90 min (README.md).
+    start_date=datetime(2026, 1, 1, tz="UTC"),
     catchup=False,
     max_active_runs=1,
     dagrun_timeout=timedelta(minutes=30),

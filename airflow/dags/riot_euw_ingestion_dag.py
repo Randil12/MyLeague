@@ -1,10 +1,11 @@
 ﻿from __future__ import annotations
 
 import os
-from datetime import datetime, timedelta
+from datetime import timedelta
 from typing import Any
 
 from airflow.sdk import dag, task
+from pendulum import datetime
 
 RAW_DIR = "/opt/airflow/data/bronze/riot"
 
@@ -12,8 +13,8 @@ RAW_DIR = "/opt/airflow/data/bronze/riot"
 @dag(
     dag_id="riot_euw_ingestion",
     description="Ingest EUW Master+ ranked solo queue matches from Riot API into bronze.",
-    schedule="@daily",
-    start_date=datetime(2026, 1, 1),
+    schedule="0 */3 * * *",  # Collecte intensive : toutes les 3 h UTC (README.md).
+    start_date=datetime(2026, 1, 1, tz="UTC"),
     catchup=False,
     max_active_runs=1,
     dagrun_timeout=timedelta(minutes=90),

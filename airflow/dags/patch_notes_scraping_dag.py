@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import timedelta
 
 from airflow.sdk import dag, task
+from pendulum import datetime
 
 RAW_DIR = "/opt/airflow/data/bronze/patch_notes"
 
@@ -14,8 +15,8 @@ RAW_DIR = "/opt/airflow/data/bronze/patch_notes"
         "détecte le patch courant via Data Dragon et ne scrape que s'il est nouveau "
         "(idempotent ; un 404 = notes pas encore publiées, retenté le lendemain)."
     ),
-    schedule="@daily",
-    start_date=datetime(2026, 1, 1),
+    schedule="0 2 * * *",  # UTC ; voir le planning dans README.md.
+    start_date=datetime(2026, 1, 1, tz="UTC"),
     catchup=False,
     max_active_runs=1,
     dagrun_timeout=timedelta(minutes=15),

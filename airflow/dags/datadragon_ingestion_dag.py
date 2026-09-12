@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import timedelta
 
 from airflow.sdk import dag, task
+from pendulum import datetime
 
 RAW_DIR = "/opt/airflow/data/bronze/datadragon"
 LOCALE = "fr_FR"
@@ -14,9 +15,11 @@ LOCALE = "fr_FR"
         "ETL Data Dragon : extraction du référentiel LoL, "
         "transformation Python et chargement dans Postgres (schéma reference)."
     ),
-    schedule="@daily",
-    start_date=datetime(2026, 1, 1),
+    schedule="0 0 * * *",  # UTC ; voir le planning dans README.md.
+    start_date=datetime(2026, 1, 1, tz="UTC"),
     catchup=False,
+    max_active_runs=1,
+    dagrun_timeout=timedelta(minutes=45),
     default_args={"retries": 2, "retry_delay": timedelta(minutes=5)},
     tags=["datadragon", "reference", "etl"],
 )
