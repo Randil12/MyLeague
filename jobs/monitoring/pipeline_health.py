@@ -18,7 +18,8 @@ PIPELINE_MAX_AGE_HOURS = {
     "leaguepedia_ingestion": 30,
     "patch_notes_scraping": 30,
     "riot_academy_tracking": 30,
-    "riot_live_spectator": 1,
+    # Continuous spectator is monitored through gold.gold_live_service + Docker healthcheck,
+    # not through Airflow run history anymore.
 }
 HEALTHY_STATUSES = {"success", "partial_success", "scraped", "already_ingested"}
 
@@ -209,4 +210,3 @@ def run() -> dict[str, Any]:
 
 if __name__ == "__main__":
     print(json.dumps(run(), ensure_ascii=False))
-

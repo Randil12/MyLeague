@@ -27,6 +27,8 @@ from jobs.riot.euw_ingest import (
     utc_now,
 )
 
+LIVE_LOCK_ID = 74120501
+
 
 def init_live_schema(conn) -> None:
     with conn.cursor() as cur:
@@ -76,7 +78,7 @@ def insert_live_snapshot(conn, game: dict[str, Any], observed_puuid: str) -> boo
             INSERT INTO raw.riot_live_game_snapshots (
                 game_id, region, queue_id, observed_puuid, game_started_at, payload, observed_at
             )
-            VALUES (%s, %s, %s, %s, to_timestamp(%s / 1000.0), %s, %s)
+            VALUES (%s, %s, %s, %s, to_timestamp(NULLIF(%s, 0) / 1000.0), %s, %s)
             ON CONFLICT (game_id) DO NOTHING
             RETURNING game_id
             """,
@@ -112,6 +114,11 @@ def run(
     errors: list[dict[str, Any]] = []
 
     try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT pg_try_advisory_lock(%s)", (LIVE_LOCK_ID,))
+            if not cur.fetchone()[0]:
+                return {"status": "skipped", "reason": "Continuous spectator service is already running"}
+        conn.commit()
         init_live_schema(conn)
         puuids = select_players_to_poll(conn, max_players)
 

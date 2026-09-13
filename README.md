@@ -22,7 +22,7 @@ flowchart LR
     end
 
     subgraph DOCKER["DOCKER COMPOSE — stack MyLeague"]
-        AF["APACHE AIRFLOW<br/>orchestration : 8 pipelines planifiés"]
+        AF["APACHE AIRFLOW<br/>orchestration : 7 pipelines planifiés"]
 
         subgraph MED["ARCHITECTURE MÉDAILLON"]
             direction TB
@@ -123,7 +123,7 @@ Déploiement : push/pull, puis `docker compose restart airflow`. Aucun nouveau
 secret requis. Activer/déclencher `leaguepedia_ingestion` dans Airflow et inspecter
 `ingest_year_history`. Les tables raw et la sauvegarde bronze restent inchangées.
 
-### Les 8 pipelines planifiés et le backfill manuel
+### Les 7 pipelines planifiés et le backfill manuel
 
 | DAG | Rôle | Pattern | Fréquence |
 |---|---|---|---|
@@ -131,7 +131,7 @@ secret requis. Activer/déclencher `leaguepedia_ingestion` dans Airflow et inspe
 | `riot_euw_ingestion` | Matchs classés + timelines EUW | ELT (E/L) | Toutes les 3 h : 00:00, 03:00, …, 21:00 UTC |
 | `leaguepedia_ingestion` | Tournois, équipes, parties professionnelles | ELT (E/L) | Toutes les 6 h : 01:00, 07:00, 13:00, 19:00 UTC |
 | `patch_notes_scraping` | Notes de patch officielles | Scraping | Chaque jour à 02:00 UTC (si nouveau patch) |
-| `riot_live_spectator` | Parties en cours des joueurs suivis | Micro-batch temps réel | Toutes les 30 min |
+| `riot_live_spectator` | Ancien DAG conservé pour son historique | Remplacé par `riot-live` | Désactivé, y compris les tâches manuelles |
 | `riot_academy_tracking` | Maîtrises des joueurs du club | ELT | Deux fois par jour : 04:45 et 16:45 UTC |
 | `dbt_transform` | Construction des tables d'analyse + tests qualité | ELT (T) | Toutes les 3 h : 02:00, 05:00, …, 23:00 UTC |
 | `pipeline_health_monitoring` | Détection des échecs et retards, notification optionnelle | Monitoring | Toutes les 15 min |
@@ -162,13 +162,17 @@ l'élargissement de l'échantillon plutôt qu'un historique complet par joueur.
 Les timelines restent activées pour conserver les données utiles au coaching.
 Surveiller les erreurs 429/401/403, la validité de la clé Riot, les timeouts et
 l'espace disque ; si les runs échouent, corriger avant d'augmenter les plafonds.
-Le spectator reste actif à :00 et :30 et peut partager le quota Riot avec les ingestions.
+Le service Docker `riot-live` collecte désormais en continu : 5 joueurs toutes les
+60 secondes par défaut, sous réserve des délais et quotas Riot partagés avec les ingestions.
+La vue **Coaching → En direct** se rafraîchit toutes les 15 secondes, sans attendre dbt.
+Il s'agit de quasi-temps réel par polling, pas de télémétrie seconde par seconde.
+Voir le [guide de déploiement et de démonstration](services/riot-live/README.md).
 Le monitoring reste actif à :00, :15, :30 et :45. Le backfill consomme beaucoup
 d'appels API : le déclencher hors des créneaux Riot/Academy et éviter les relances simultanées.
 
 Tous les DAGs conservent `catchup=False` et limitent les runs actifs à un par DAG.
 Cela évite de rattraper automatiquement des mois d'historique après une interruption.
-Activer les huit DAGs planifiés dans l'interface Airflow après le déploiement ;
+Activer les sept DAGs planifiés dans l'interface Airflow après le déploiement ;
 une modification du code ne dépausera pas les DAGs déjà présents.
 
 Ce planning fixe ne constitue pas une dépendance entre DAGs : dbt démarre à l'heure prévue
