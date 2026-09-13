@@ -220,3 +220,7 @@ data/raw/
 data/bronze/
 backups/
 docs/
+
+# React frontend
+node_modules/
+*.tsbuildinfo

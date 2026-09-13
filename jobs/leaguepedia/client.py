@@ -8,11 +8,16 @@ Les imports mwrogue sont paresseux pour que les tests unitaires n'exigent pas la
 from __future__ import annotations
 
 import os
+import time
 from typing import Any
 
 
 class LeaguepediaError(RuntimeError):
     pass
+
+
+class PaginationLimit(LeaguepediaError):
+    """The caller must split its time window instead of accepting truncated data."""
 
 
 def get_credentials() -> tuple[str, str]:
@@ -43,8 +48,11 @@ def cargo_query(
     order_by: str | None = None,
     page_size: int = 500,
     max_pages: int = 10,
+    strict: bool = False,
 ) -> list[dict[str, Any]]:
     """Requête Cargo paginée (limite serveur : 500 lignes par page)."""
+    if max_pages < 1:
+        raise ValueError("max_pages must be positive")
     results: list[dict[str, Any]] = []
     for page in range(max_pages):
         kwargs: dict[str, Any] = {
@@ -58,9 +66,16 @@ def cargo_query(
         if order_by:
             kwargs["order_by"] = order_by
         rows = client.cargo_client.query(**kwargs)
+        if strict:
+            time.sleep(0.25)
         results.extend(rows)
         if len(rows) < page_size:
-            break
+            return results
+    if strict:
+        kwargs["offset"] = max_pages * page_size
+        kwargs["limit"] = 1
+        if client.cargo_client.query(**kwargs):
+            raise PaginationLimit(f"Window exceeds {max_pages} pages in {tables}")
     return results
 
 
@@ -97,7 +112,9 @@ def fetch_players(client, max_pages: int = 20) -> list[dict[str, Any]]:
     )
 
 
-def fetch_scoreboard_players(client, since_iso: str, max_pages: int = 20) -> list[dict[str, Any]]:
+def fetch_scoreboard_players(
+    client, since_iso: str, max_pages: int = 20, until_iso: str | None = None,
+) -> list[dict[str, Any]]:
     """Stats individuelles par partie pro : qui a joué quel champion, à quel poste."""
     return cargo_query(
         client,
@@ -106,13 +123,18 @@ def fetch_scoreboard_players(client, since_iso: str, max_pages: int = 20) -> lis
             "GameId,Link,Champion,Role,Side,Team,Kills,Deaths,Assists,"
             "CS,Gold,SummonerSpells,DateTime_UTC"
         ),
-        where=f'DateTime_UTC >= "{since_iso}"',
-        order_by="DateTime_UTC",
+        where=f'DateTime_UTC >= "{since_iso}"' + (
+            f' AND DateTime_UTC < "{until_iso}"' if until_iso else ""
+        ),
+        order_by="DateTime_UTC,GameId,Link",
         max_pages=max_pages,
+        strict=until_iso is not None,
     )
 
 
-def fetch_scoreboard_games(client, since_iso: str, max_pages: int = 20) -> list[dict[str, Any]]:
+def fetch_scoreboard_games(
+    client, since_iso: str, max_pages: int = 20, until_iso: str | None = None,
+) -> list[dict[str, Any]]:
     """Parties professionnelles (picks, bans, vainqueur, patch) depuis une date UTC."""
     return cargo_query(
         client,
@@ -122,7 +144,10 @@ def fetch_scoreboard_games(client, since_iso: str, max_pages: int = 20) -> list[
             "DateTime_UTC,Patch,Team1Picks,Team2Picks,Team1Bans,Team2Bans,"
             "Team1Kills,Team2Kills,Gamelength"
         ),
-        where=f'DateTime_UTC >= "{since_iso}"',
-        order_by="DateTime_UTC",
+        where=f'DateTime_UTC >= "{since_iso}"' + (
+            f' AND DateTime_UTC < "{until_iso}"' if until_iso else ""
+        ),
+        order_by="DateTime_UTC,GameId",
         max_pages=max_pages,
+        strict=until_iso is not None,
     )

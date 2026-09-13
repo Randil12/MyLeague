@@ -227,7 +227,9 @@
       - local_ui
 
   web:
-    build: ./webapp
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
     container_name: myleague-web
     environment:
       GOLD_POSTGRES_HOST: gold-postgres

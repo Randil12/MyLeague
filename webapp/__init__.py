@@ -1,1 +1,0 @@
-"""MyLeague web application."""

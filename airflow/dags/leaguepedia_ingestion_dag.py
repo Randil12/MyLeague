@@ -19,11 +19,22 @@ RAW_DIR = "/opt/airflow/data/bronze/leaguepedia"
     start_date=datetime(2026, 1, 1, tz="UTC"),
     catchup=False,
     max_active_runs=1,
-    dagrun_timeout=timedelta(minutes=45),
+    dagrun_timeout=timedelta(minutes=75),
     default_args={"retries": 2, "retry_delay": timedelta(minutes=5)},
     tags=["leaguepedia", "esport", "bronze", "elt"],
 )
 def leaguepedia_ingestion() -> None:
+    @task(execution_timeout=timedelta(minutes=25))
+    def ingest_year_history() -> dict:
+        from jobs.leaguepedia.yearly import run
+
+        return run(
+            raw_dir=RAW_DIR,
+            year=int(os.getenv("LEAGUEPEDIA_YEAR", "0")) or None,
+            max_pages=int(os.getenv("LEAGUEPEDIA_MAX_PAGES", "20")),
+            days_per_run=45,
+        )
+
     @task(execution_timeout=timedelta(minutes=40))
     def ingest_leaguepedia() -> dict:
         from jobs.leaguepedia.ingest import run
@@ -35,7 +46,7 @@ def leaguepedia_ingestion() -> None:
             max_pages=int(os.getenv("LEAGUEPEDIA_MAX_PAGES", "20")),
         )
 
-    ingest_leaguepedia()
+    ingest_year_history() >> ingest_leaguepedia()
 
 
 leaguepedia_ingestion()
