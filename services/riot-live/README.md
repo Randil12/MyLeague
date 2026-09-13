@@ -59,6 +59,15 @@ Les autres collectes Riot et Leaguepedia ne modifient pas cette liste. Le collec
 la relit à chaque cycle, sans redémarrage ni intervention Airflow. Une pause Riot
 peut retarder la première observation ; consulter le statut du service.
 
+Chaque ajout crée aussi, si nécessaire, l'identité dans `audit.riot_tracked_players`
+pour respecter la clé étrangère des snapshots. Les nouvelles identités live ont
+`is_tracked=false`, `is_currently_master_plus=false`, `tracking_source='live'` : cela
+n'active pas l'ingestion historique et ne prétend pas que le joueur est Master+.
+Les champs historiques de première/dernière détection, obligatoires dans ce registre,
+sont initialisés à la date d'inscription. Les joueurs déjà présents (Academy/ladder)
+ne sont pas modifiés. Au démarrage, les références manquantes des inscriptions live
+existantes sont recréées sans supprimer les données ni désactiver la clé étrangère.
+
 Le bouton **Retirer** retire seulement l'inscription au suivi : les snapshots et
 les autres historiques restent conservés. Une requête déjà partie peut finir,
 mais les observations des joueurs retirés sont exclues de la vue SQL immédiatement.

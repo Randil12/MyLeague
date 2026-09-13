@@ -36,6 +36,23 @@ def init_roster(cur):
         id bigserial PRIMARY KEY, puuid text UNIQUE NOT NULL,
         riot_id text NOT NULL, created_at timestamptz NOT NULL DEFAULT now()
     )""")
+    # Repair pre-existing coach registrations before the first spectator cycle.
+    # The snapshot FK references this shared registry, not the live roster.
+    cur.execute("""INSERT INTO audit.riot_tracked_players
+        (puuid, region, riot_summoner_name, first_seen_master_plus_at,
+         last_seen_master_plus_at, is_currently_master_plus, is_tracked, tracking_source)
+        SELECT puuid, 'euw1', riot_id, created_at, created_at, false, false, 'live'
+        FROM raw.riot_live_roster WHERE true
+        ON CONFLICT (puuid) DO NOTHING""")
+
+
+def register_live_identity(cur, puuid, riot_id):
+    # Registration only: do not enable historical ingestion or modify Academy/ladder flags.
+    cur.execute("""INSERT INTO audit.riot_tracked_players
+        (puuid, region, riot_summoner_name, first_seen_master_plus_at,
+         last_seen_master_plus_at, is_currently_master_plus, is_tracked, tracking_source)
+        VALUES (%s, 'euw1', %s, now(), now(), false, false, 'live')
+        ON CONFLICT (puuid) DO NOTHING""", (puuid, riot_id))
 
 
 def resolve(value):
@@ -89,6 +106,7 @@ def roster_request(method, path, body=None):
                     if cur.fetchone()[0] >= capacity():
                         raise RosterError(409, "Liste pleine : retire un joueur avant d’en ajouter un.")
                     puuid, riot_id = resolve(value)
+                    register_live_identity(cur, puuid, riot_id)
                     cur.execute("""INSERT INTO raw.riot_live_roster(puuid,riot_id) VALUES (%s,%s)
                         ON CONFLICT(puuid) DO UPDATE SET riot_id=EXCLUDED.riot_id RETURNING id""", (puuid, riot_id))
                     return {"id": cur.fetchone()[0], "riot_id": riot_id}

@@ -79,6 +79,10 @@ def test_coach_to_collector_to_minio_and_api(infrastructure, monkeypatch):
             added = client.post("/api/live/roster", json={"riot_id":"CoachPlayer#EUW"}, headers=headers)
             assert added.status_code == 200
             player_id = added.json()["id"]
+            with conn.cursor() as cur:
+                cur.execute("""SELECT riot_summoner_name, is_tracked, is_currently_master_plus,
+                    tracking_source FROM audit.riot_tracked_players WHERE puuid='ci-live-player'""")
+                assert cur.fetchone() == ("CoachPlayer#EUW", False, False, "live")
             assert client.get("/api/live/roster").json()["players"][0]["riot_id"] == "CoachPlayer#EUW"
             for _ in range(2):
                 live_service.poll_cycle(conn, get_minio_config(), NoWait(), 60, 5)
@@ -93,6 +97,18 @@ def test_coach_to_collector_to_minio_and_api(infrastructure, monkeypatch):
                 assert cur.fetchone()[0] == 1
             assert client.delete(f"/api/live/roster/{player_id}", headers=headers).status_code == 200
             assert client.get("/api/live/players").json() == []
+            with conn.cursor() as cur:
+                cur.execute("SELECT observed_puuid FROM raw.riot_live_game_snapshots WHERE game_id=987654321")
+                assert cur.fetchone() == ("ci-live-player",)
+            conn.commit()
+            # Simulate a roster created by the previous release without a registry entry.
+            with conn, conn.cursor() as cur:
+                cur.execute("INSERT INTO raw.riot_live_roster(puuid,riot_id) VALUES ('ci-repair','Repair#EUW')")
+            live_service.init_schema(conn)
+            live_service.init_schema(conn)  # Idempotent migration, no duplicate identities.
+            with conn.cursor() as cur:
+                cur.execute("SELECT is_tracked,tracking_source FROM audit.riot_tracked_players WHERE puuid='ci-repair'")
+                assert cur.fetchone() == (False, "live")
     finally:
         server.shutdown()
         server.server_close()

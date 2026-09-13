@@ -83,6 +83,21 @@ def test_add_parameterized_and_idempotent(monkeypatch):
     call = cur.execute.call_args_list[-1]
     assert "ON CONFLICT(puuid)" in call.args[0]
     assert call.args[1] == ("puuid", "Player#EUW")
+    identity_call = cur.execute.call_args_list[-2]
+    assert "INSERT INTO audit.riot_tracked_players" in identity_call.args[0]
+    assert "false, false, 'live'" in identity_call.args[0]
+    assert "ON CONFLICT (puuid) DO NOTHING" in identity_call.args[0]
+    assert identity_call.args[1] == ("puuid", "Player#EUW")
+
+
+def test_startup_repairs_existing_roster_without_enabling_ingestion():
+    cur = MagicMock()
+    roster.init_roster(cur)
+    repair = cur.execute.call_args.args[0]
+    assert "INSERT INTO audit.riot_tracked_players" in repair
+    assert "FROM raw.riot_live_roster" in repair
+    assert "false, false, 'live'" in repair
+    assert "ON CONFLICT (puuid) DO NOTHING" in repair
 
 
 def test_remove_only_roster(monkeypatch):
