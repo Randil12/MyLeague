@@ -9,8 +9,10 @@ from fastapi.staticfiles import StaticFiles
 from sqlalchemy.exc import SQLAlchemyError
 
 from backend import db, queries
+from backend.live_roster import router as roster_router
 
 app = FastAPI(title="MyLeague", docs_url=None, redoc_url=None, openapi_url=None)
+app.include_router(roster_router)
 logger = logging.getLogger(__name__)
 DIST = Path(__file__).resolve().parents[1] / "frontend" / "dist"
 

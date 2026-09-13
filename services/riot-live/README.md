@@ -1,7 +1,7 @@
 # Spectator continu — quasi-temps réel
 
 Service Python Docker `riot-live`, indépendant d'Airflow. Il interroge spectator-v5
-pour les joueurs suivis EUW, Academy d'abord. Par défaut : **5 joueurs**, un cycle
+pour les joueurs EUW choisis par le coach dans l'application. Par défaut : **5 joueurs**, un cycle
 cible toutes les **60 secondes**, au moins une seconde entre joueurs.
 Le temps de traitement, les erreurs et quotas peuvent allonger cette cadence.
 
@@ -45,10 +45,50 @@ Après changement, recréer le service : `docker compose up -d --force-recreate 
 Les clés Riot, PostgreSQL et MinIO existantes sont réutilisées ; aucune nouvelle
 clé ni aucun port public ne sont ajoutés. La clé Riot doit permettre spectator-v5.
 
-Les joueurs sont sélectionnés dans `audit.riot_tracked_players`, pas depuis la
-liste des joueurs Leaguepedia. Enregistrer les joueurs Academy avec le workflow
-existant si nécessaire. Si le nombre dépasse la limite, seuls les premiers de la
-sélection stable sont suivis ; il n'y a pas de rotation garantie de tous les joueurs.
+## Choisir ses joueurs dans l'application
+
+Dans **Coaching → En direct → Mes joueurs à suivre**, saisir `Pseudo#TAG`, puis
+cliquer **Ajouter au suivi**. Le service résout le Riot ID avec ACCOUNT-V1 et
+vérifie l'existence du compte LoL sur EUW avec SUMMONER-V4. Le PUUID est conservé
+uniquement côté serveur pour les appels spectator ; le navigateur reçoit un ID
+de ligne et le Riot ID. L'identité saisie ne prouve pas l'appartenance à une équipe.
+
+La liste partagée est persistée dans `raw.riot_live_roster`. Elle est vide au premier
+déploiement : aucun ancien joueur Academy/ladder n'est ajouté automatiquement.
+Les autres collectes Riot et Leaguepedia ne modifient pas cette liste. Le collecteur
+la relit à chaque cycle, sans redémarrage ni intervention Airflow. Une pause Riot
+peut retarder la première observation ; consulter le statut du service.
+
+Le bouton **Retirer** retire seulement l'inscription au suivi : les snapshots et
+les autres historiques restent conservés. Une requête déjà partie peut finir,
+mais les observations des joueurs retirés sont exclues de la vue SQL immédiatement.
+La liste ne peut pas dépasser `RIOT_LIVE_STREAM_MAX_PLAYERS` (5 par défaut, maximum 10).
+Un même PUUID ne peut pas être inscrit deux fois. Si l'administrateur abaisse cette
+limite sous la taille actuelle, seuls les premiers inscrits sont collectés : retirer
+les inscriptions excédentaires. Une liste vide ne déclenche aucun appel spectator.
+
+Après push/pull, reconstruire **les deux** services :
+
+```bash
+docker compose up -d --build riot-live web
+```
+
+L'API web relaie les opérations vers `http://riot-live:8091` sur le réseau Docker
+privé. Aucun port supplémentaire n'est publié ; aucun nouveau mot de passe requis.
+Le compte PostgreSQL `data_analyst` de l'application reste en lecture seule : le
+service technique riot-live effectue les écritures ciblées. Ne pas publier 8091.
+Les mutations nécessitent un en-tête applicatif et aucun accès CORS n'est autorisé.
+Cela protège contre les formulaires cross-origin, **pas contre un utilisateur déjà
+autorisé à accéder à l'application** : liste commune, pas de comptes individuels.
+Garder l'accès par tunnel SSH ; une exposition publique nécessiterait une vraie
+authentification et des droits d'accès. Les recherches de compte sont sérialisées,
+limitées et respectent leur propre Retry-After ; il n'y a pas de limiteur global
+partagé avec spectator et les autres DAGs.
+
+Pour un backend développé hors Docker, `RIOT_LIVE_SERVICE_URL` permet de choisir
+l'adresse du service accessible via un réseau privé/tunnel. Le tunnel PostgreSQL
+seul ne donne pas accès à cette API. Le parcours recommandé est la webapp sur VPS
+accessible via le tunnel web existant.
 
 ## Fiabilité et mesure
 

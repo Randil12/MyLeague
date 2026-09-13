@@ -21,6 +21,7 @@ from jobs.riot.euw_ingest import (
     utc_now,
 )
 from jobs.riot.live_games import LIVE_LOCK_ID, init_live_schema, insert_live_snapshot
+from jobs.riot.live_roster import init_roster, start_server
 
 LOCK_ID = LIVE_LOCK_ID
 HEALTH_FILE = Path("/tmp/myleague-live-heartbeat")
@@ -30,6 +31,7 @@ logger = logging.getLogger(__name__)
 def init_schema(conn):
     init_live_schema(conn)
     with conn.cursor() as cur:
+        init_roster(cur)
         cur.execute("""
             CREATE TABLE IF NOT EXISTS raw.riot_live_player_state (
                 puuid text PRIMARY KEY, player_name text NOT NULL, selected boolean NOT NULL DEFAULT true,
@@ -66,7 +68,7 @@ def init_schema(conn):
             FROM raw.riot_live_player_state p
             LEFT JOIN raw.riot_live_game_snapshots g ON g.game_id = p.game_id
             LEFT JOIN audit.riot_live_service s ON s.singleton = true
-            WHERE p.selected;
+            WHERE p.selected AND EXISTS (SELECT 1 FROM raw.riot_live_roster r WHERE r.puuid=p.puuid);
         """)
         cur.execute(sql.SQL("GRANT SELECT ON gold.gold_live_players, gold.gold_live_service TO {}").format(
             sql.Identifier(os.getenv("DATA_ANALYST_USER", "data_analyst"))))
@@ -87,10 +89,8 @@ def heartbeat(conn, status, interval, selected, polled, errors, wait=0):
 
 def select_players(conn, limit):
     with conn.cursor() as cur:
-        cur.execute("""SELECT puuid, coalesce(riot_summoner_name, left(puuid,12) || '…')
-            FROM audit.riot_tracked_players WHERE region='euw1' AND is_tracked
-            ORDER BY (tracking_source='academy') DESC NULLS LAST,
-                     last_seen_master_plus_at DESC NULLS LAST, puuid LIMIT %s""", (limit,))
+        cur.execute("""SELECT puuid, riot_id FROM raw.riot_live_roster
+            ORDER BY created_at, id LIMIT %s""", (limit,))
         players = cur.fetchall()
         cur.execute("UPDATE raw.riot_live_player_state SET selected=false WHERE selected")
         # Keep known observations for selected players until their next successful check.
@@ -219,7 +219,12 @@ def main():
     stop = Event()
     for sig in (signal.SIGTERM, signal.SIGINT):
         signal.signal(sig, lambda *_: stop.set())
-    run_forever(stop)
+    server = start_server()
+    try:
+        run_forever(stop)
+    finally:
+        server.shutdown()
+        server.server_close()
 
 
 if __name__ == "__main__":
