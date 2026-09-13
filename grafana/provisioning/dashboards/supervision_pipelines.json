@@ -1,0 +1,130 @@
+{
+  "uid": "myleague-supervision",
+  "title": "Supervision des pipelines data",
+  "tags": ["myleague", "supervision"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "1m",
+  "time": { "from": "now-7d", "to": "now" },
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Matchs chargés en bronze (success)",
+      "gridPos": { "h": 5, "w": 6, "x": 0, "y": 0 },
+      "datasource": { "type": "postgres", "uid": "gold-postgres" },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT count(*) FROM audit.riot_match_ingestion WHERE status = 'success'"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Matchs en échec / attente",
+      "gridPos": { "h": 5, "w": 6, "x": 6, "y": 0 },
+      "datasource": { "type": "postgres", "uid": "gold-postgres" },
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "orange", "value": 1 },
+              { "color": "red", "value": 50 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT count(*) FROM audit.riot_match_ingestion WHERE status IN ('failed', 'pending')"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Matchs chargés dans le warehouse (raw)",
+      "gridPos": { "h": 5, "w": 6, "x": 12, "y": 0 },
+      "datasource": { "type": "postgres", "uid": "gold-postgres" },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT row_count FROM audit.v_raw_row_counts WHERE table_name = 'riot_matches'"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Joueurs Master+ suivis",
+      "gridPos": { "h": 5, "w": 6, "x": 18, "y": 0 },
+      "datasource": { "type": "postgres", "uid": "gold-postgres" },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT count(*) FROM audit.riot_tracked_players WHERE is_tracked"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Matchs ingérés par jour",
+      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 5 },
+      "datasource": { "type": "postgres", "uid": "gold-postgres" },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT date_trunc('day', loaded_at) AS time, count(*) AS matchs FROM audit.riot_match_ingestion WHERE status = 'success' AND loaded_at IS NOT NULL GROUP BY 1 ORDER BY 1"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "type": "table",
+      "title": "Derniers runs de pipelines",
+      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 5 },
+      "datasource": { "type": "postgres", "uid": "gold-postgres" },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT run_id AS \"Run\", pipeline_name AS \"Pipeline\", status AS \"Statut\", started_at AS \"Début\", ended_at AS \"Fin\", records_read AS \"Lus\", records_written AS \"Écrits\", error_count AS \"Erreurs\" FROM audit.pipeline_runs ORDER BY started_at DESC LIMIT 20"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "type": "table",
+      "title": "Dernières erreurs d'ingestion",
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 14 },
+      "datasource": { "type": "postgres", "uid": "gold-postgres" },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT match_id AS \"Match\", retry_count AS \"Tentatives\", updated_at AS \"Dernier essai\", left(error_message, 200) AS \"Erreur\" FROM audit.riot_match_ingestion WHERE status = 'failed' ORDER BY updated_at DESC LIMIT 20"
+        }
+      ]
+    }
+  ]
+}

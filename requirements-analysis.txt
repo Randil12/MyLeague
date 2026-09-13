@@ -1,0 +1,4 @@
+-r app/requirements.txt
+scipy>=1.13
+matplotlib>=3.8
+python-docx>=1.2
