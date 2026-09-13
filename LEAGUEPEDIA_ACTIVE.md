@@ -1,6 +1,6 @@
 # Joueurs actifs et parties compétitives de l'année
 
-Le DAG `leaguepedia_active_players` démarre à **HH:15 UTC, chaque heure**.
+Le DAG fusionné `leaguepedia_ingestion` démarre à **HH:15 UTC, chaque heure**.
 Il collecte les parties Leaguepedia de l'année UTC courante, puis lance un
 `dbt build` ciblé avec tests. Ce n'est ni de la solo queue Riot ni du temps réel.
 
@@ -22,7 +22,7 @@ Les anciens alias/renommages ne sont pas encore consolidés via PlayerRedirects.
   manquantes depuis janvier. Les anciennes journées sont revisitées au plus tôt
   après 24 h pour intégrer les corrections tardives.
 - Maximum 20 journées par passage, budget souple de 10 minutes (vérifié entre
-  journées), limite Airflow de 20 minutes par tentative de collecte.
+  journées), limite Airflow de 25 minutes par tentative de collecte.
   Le premier chargement peut nécessiter plusieurs passages ; pas de date de
   complétude garantie. `catchup=False`, une seule exécution active et verrou SQL.
 - Pagination saturée : découpage de la fenêtre, jamais de troncature acceptée.
@@ -35,10 +35,25 @@ Les anciens alias/renommages ne sont pas encore consolidés via PlayerRedirects.
   une politique de rétention selon les besoins de preuve. Si MinIO n'est pas
   configuré, le collecteur existant utilise le stockage local de secours.
 
-L'ancien DAG `leaguepedia_ingestion` conserve les référentiels joueurs, équipes
-et tournois toutes les 6 h ; il ne collecte plus les parties. Le DAG dbt général
+Le DAG fusionné enchaîne l'historique annuel, les référentiels joueurs/équipes/
+tournois puis le build Gold, sans tâches parallèles. Le DAG dbt général
 exclut le tag `leaguepedia_active` pour éviter deux constructions concurrentes
 de ces tables. Le DAG horaire possède ses propres logs/artéfacts dbt dans `/tmp`.
+
+## Limitation Cargo
+
+Le compte a exposé `cargo-query: 60 hits / 60 seconds`. Tous les appels Cargo
+du client (pages, sondes de pagination, référentiels, reprises) sont espacés
+d'au moins 2 secondes après la fin de l'appel précédent, soit au plus environ
+30 appels/minute dans le processus. Sur `ratelimited`, la même page est retentée
+après 60, 120 puis 240 secondes. Après trois reprises infructueuses, l'erreur
+remonte ; pas de retry Airflow immédiat, reprise au prochain passage horaire.
+Les autres erreurs ne sont pas retentées par ce mécanisme.
+
+Ce limiteur est local au processus, pas distribué entre machines. Ne pas lancer
+de collecte CLI ni une autre installation utilisant le même compte en parallèle.
+La fusion, `max_active_runs=1` et `max_active_tasks=1` évitent le cumul des DAGs.
+Une limitation Fandom supplémentaire reste possible.
 
 ## Tables Gold
 
@@ -57,14 +72,17 @@ Cette livraison prépare les données : elle ne crée pas d'écran de comparaiso
 ## Déploiement et validation
 
 Après merge et déploiement CI/CD (ou pull puis redémarrage Airflow), attendre
-que les deux DAGs Leaguepedia soient reparsés. Éviter le changement pendant
-une collecte en cours. Activer `leaguepedia_active_players` dans Airflow et
+que les deux DAGs Leaguepedia soient reparsés. Mettre les anciens DAGs en pause
+et attendre la fin des collectes déjà lancées avant le changement (la pause ne
+stoppe pas une tâche en cours). Garder `leaguepedia_active_players` en pause :
+son fichier conserve un DAG sans planning et sans appels API, uniquement pour
+la transition. Activer seulement `leaguepedia_ingestion` dans Airflow et
 déclencher un premier passage manuel si souhaité. Le dbt ciblé est automatique.
 
 La sortie de `collect_current_year` indique `days_remaining` et
 `coverage_complete_as_observed`. Une collecte réussie peut être encore partielle.
 Le checkpoint persiste dans `audit.leaguepedia_year_days` et les exécutions dans
-`audit.pipeline_runs` avec `pipeline_name='leaguepedia_active_players'`.
+`audit.pipeline_runs` avec `pipeline_name='leaguepedia_ingestion'`.
 
 ```sql
 SELECT * FROM gold.gold_pro_active_players_year

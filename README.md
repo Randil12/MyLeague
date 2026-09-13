@@ -8,11 +8,13 @@ Projet de fin d'études (RNCP 39586 — Ingénieur en science des données).
 
 ## Joueurs compétitifs actifs dans l'année
 
-Le nouveau DAG `leaguepedia_active_players` collecte les parties de l'année UTC
+Le DAG fusionné `leaguepedia_ingestion` collecte les parties de l'année UTC
 courante toutes les heures à HH:15, reprend progressivement l'historique et
 construit trois tables Gold de participations, d'activité annuelle et de
-comparaison joueur/champion/patch. L'ancien DAG Leaguepedia conserve les
-référentiels. Voir [LEAGUEPEDIA_ACTIVE.md](LEAGUEPEDIA_ACTIVE.md) pour le périmètre,
+comparaison joueur/champion/patch. Il collecte aussi les référentiels, en série,
+avec un délai de 2 secondes entre appels Cargo et un backoff sur limitation.
+`leaguepedia_active_players` est retiré (sans planning ni collecte).
+Voir [LEAGUEPEDIA_ACTIVE.md](LEAGUEPEDIA_ACTIVE.md) pour le périmètre,
 les limites de couverture, les tests et l'activation sur le VPS.
 
 ## Pseudos dans l'application
@@ -141,12 +143,11 @@ alimenté que si les cinq joueurs apparaissent effectivement ensemble du même c
 
 ### Leaguepedia : historique annuel des parties de compétition
 
-Le DAG `leaguepedia_ingestion` commence par `ingest_year_history`, puis conserve
-la collecte récente et les catalogues existants. `LEAGUEPEDIA_YEAR=0` cible
-l'année UTC courante (2026 actuellement), du 1er janvier jusqu'au début du run.
-Une année explicite permet de cibler un historique antérieur.
+Le DAG `leaguepedia_ingestion` enchaîne `collect_current_year`, `collect_catalog`
+puis `build_player_gold`. Il cible l'année UTC courante, du 1er janvier au début
+du run. Le paramètre historique `LEAGUEPEDIA_YEAR` n'affecte plus ce DAG fusionné.
 
-- Jusqu'à 45 journées par run, budget souple de 15 minutes entre journées,
+- Jusqu'à 20 journées par run, budget souple de 10 minutes entre journées,
   timeout dur de 25 minutes pour la tâche annuelle. Une journée interrompue est rejouée.
 - Les deux derniers jours sont rafraîchis, puis les journées manquantes les plus
   anciennes. Une fois l'historique couvert, les anciennes journées sont revisitées
@@ -162,14 +163,15 @@ Une année explicite permet de cibler un historique antérieur.
   les parties datées présentes dans Leaguepedia, pas les parties solo queue des pros,
   les scrims privés ni une garantie d'exhaustivité du monde professionnel.
 
-Le DAG complet dispose désormais de 75 minutes et peut donc chevaucher le dbt
-suivant pendant le rattrapage. Une fois le lot terminé, relancer `dbt_transform`
-si nécessaire. Les compteurs annuels sont des observations de source, pas une
+Le DAG complet dispose de 55 minutes et construit automatiquement les Gold
+joueurs avec leurs tests. Les compteurs annuels sont des observations de source, pas une
 preuve que Leaguepedia a documenté chaque compétition.
 
 Déploiement : push/pull, puis `docker compose restart airflow`. Aucun nouveau
 secret requis. Activer/déclencher `leaguepedia_ingestion` dans Airflow et inspecter
-`ingest_year_history`. Les tables raw et la sauvegarde bronze restent inchangées.
+`collect_current_year`. Les tables raw et la sauvegarde bronze restent inchangées.
+Mettre les anciens DAGs en pause et attendre la fin des collectes avant déploiement.
+Garder `leaguepedia_active_players` en pause : il est remplacé par ce DAG fusionné.
 
 ### Les 7 pipelines planifiés et le backfill manuel
 
@@ -177,7 +179,7 @@ secret requis. Activer/déclencher `leaguepedia_ingestion` dans Airflow et inspe
 |---|---|---|---|
 | `datadragon_ingestion` | Référentiel du jeu (champions, objets, runes) | ETL | Chaque jour à 00:00 UTC |
 | `riot_euw_ingestion` | Matchs classés + timelines EUW | ELT (E/L) | Toutes les 3 h : 00:00, 03:00, …, 21:00 UTC |
-| `leaguepedia_ingestion` | Tournois, équipes, parties professionnelles | ELT (E/L) | Toutes les 6 h : 01:00, 07:00, 13:00, 19:00 UTC |
+| `leaguepedia_ingestion` | Historique annuel, référentiels et Gold joueurs | ELT | Chaque heure à HH:15 UTC ; appels Cargo espacés de 2 s |
 | `patch_notes_scraping` | Notes de patch officielles | Scraping | Chaque jour à 02:00 UTC (si nouveau patch) |
 | `riot_live_spectator` | Ancien DAG conservé pour son historique | Remplacé par `riot-live` | Désactivé, y compris les tâches manuelles |
 | `riot_academy_tracking` | Maîtrises des joueurs du club | ELT | Deux fois par jour : 04:45 et 16:45 UTC |

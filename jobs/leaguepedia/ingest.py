@@ -337,6 +337,9 @@ def run(
                 summary[f"{dataset}_written"] = written
             except Exception as exc:  # noqa: BLE001 - keep ingestion resilient per dataset.
                 errors.append({"dataset": dataset, "error": str(exc)})
+                if getattr(exc, "code", None) == "ratelimited":
+                    # Backoff already exhausted: do not hammer the next dataset.
+                    raise
 
         status = "success" if not errors else "partial_success"
         finish_run(conn, run_id, status, records_read, records_written, len(errors))
