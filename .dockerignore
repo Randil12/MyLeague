@@ -3,11 +3,6 @@
 !backend/**
 !frontend/
 !frontend/**
-!services/
-!services/riot-live/
-!services/riot-live/**
-!jobs/
-!jobs/**
 **/node_modules/
 **/dist/
 **/__pycache__/

@@ -1,31 +1,39 @@
 from __future__ import annotations
 
+import os
 from datetime import timedelta
 
 from airflow.sdk import dag, task
 from pendulum import datetime
 
+RAW_DIR = "/opt/airflow/data/bronze/riot"
+
+
 @dag(
     dag_id="riot_live_spectator",
     description=(
-        "Ancien pipeline spectator : remplacé par le service Docker riot-live en continu. "
-        "Ce DAG reste visible pour conserver son historique, mais ne collecte plus."
+        "Pipeline quasi temps réel (micro-batch toutes les 30 min) : capture des parties "
+        "en cours des joueurs suivis via spectator-v5 (drafts/compositions live)."
     ),
-    schedule=None,
+    schedule="*/30 * * * *",
     start_date=datetime(2026, 1, 1, tz="UTC"),
     catchup=False,
     max_active_runs=1,
     dagrun_timeout=timedelta(minutes=25),
-    # DAG conservé pour son historique ; la collecte tourne dans riot-live.
+    # Pas de retry : le prochain run (30 min) rattrape naturellement — inutile
+    # d'insister sur un instantané par nature éphémère.
     default_args={"retries": 0},
     tags=["riot", "spectator", "realtime", "bronze"],
 )
 def riot_live_spectator() -> None:
     @task(execution_timeout=timedelta(minutes=20))
     def poll_live_games() -> dict:
-        from airflow.exceptions import AirflowSkipException
+        from jobs.riot.live_games import run
 
-        raise AirflowSkipException("Collecte remplacée par le service Docker riot-live.")
+        return run(
+            raw_dir=RAW_DIR,
+            max_players=int(os.getenv("RIOT_LIVE_MAX_PLAYERS", "30")),
+        )
 
     poll_live_games()
 
