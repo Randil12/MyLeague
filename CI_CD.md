@@ -46,7 +46,9 @@ pouvoir être téléchargées depuis les registres ; une panne de registre peut 
 
 ## CD : configuration initiale (une fois)
 
-Le déploiement est **manuel après tous les tests**, pas automatique sur push.
+Le déploiement est **automatique après tous les tests sur un push vers `main`**
+(y compris après fusion d'une pull request). Les pushes vers `dev` et les pull
+requests ne déploient pas. Le lancement manuel avec `deploy` coché reste disponible.
 Créer l'environnement GitHub **production** dans Settings → Environments. Ajouter
 un reviewer obligatoire et limiter les branches à `dev`/`main` si ces protections
 sont disponibles pour le type de dépôt et l'abonnement GitHub.
@@ -80,6 +82,13 @@ fixé explicitement dans `scripts/deploy-vps.sh` ; adapter ce fichier si nécess
 Ne pas exposer PostgreSQL, MinIO ou Spark à Internet pour la CI.
 
 ## Lancer un déploiement
+
+Pour le parcours continu, fusionner une pull request vers `main` : le push résultant
+lance les tests, puis le déploiement si tous réussissent. Le workflow modifié doit
+être présent sur `main`. Une éventuelle approbation de l'environnement `production`
+reste requise ; les secrets SSH et les restrictions de branches restent appliqués.
+
+Pour le parcours manuel :
 
 Actions → **CI → Run workflow** → choisir `dev` (ou `main`) → cocher **deploy**.
 Les tests s'exécutent sur le commit choisi. Si tous passent, le job `deploy` attend

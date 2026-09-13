@@ -29,7 +29,8 @@ Les prochains `dbt_transform` rafraîchiront automatiquement les pseudos. La lis
 
 La CI s'exécute sur `dev`, `main` et les pull requests : tests unitaires, frontend,
 builds Docker et intégrations sur PostgreSQL/MinIO/dbt/Spark jetables. Le déploiement
-VPS est déclenché manuellement après les tests et nécessite les secrets SSH de
+VPS est déclenché automatiquement après les tests sur un push vers `main` (ou
+manuellement avec l'option `deploy`) et nécessite les secrets SSH de
 l'environnement GitHub `production`. Voir le [guide CI/CD](CI_CD.md).
 
 ## Calcul distribué Spark (optionnel)
