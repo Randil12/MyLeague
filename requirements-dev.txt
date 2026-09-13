@@ -1,6 +1,6 @@
 # Dépendances de développement et de CI
 -r requirements.txt
--r app/requirements.txt
+-r requirements-analysis.txt
 -r backend/requirements.txt
 httpx>=0.27,<1
 pytest>=8.0

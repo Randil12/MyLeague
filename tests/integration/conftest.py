@@ -60,7 +60,10 @@ def infrastructure(tmp_path_factory):
                         VALUES (%s,'euw1',%s) ON CONFLICT(match_id) DO UPDATE SET payload=EXCLUDED.payload""",
                                 (f"CI_{match}", json.dumps(payload)))
             artifacts = tmp_path_factory.mktemp("dbt")
+            # Partial build: only run tests whose parents are all selected.
+            # Eager selection also picked a relationship to the unbuilt team-bans model.
             subprocess.run(["dbt", "build", "--select", "+fact_match_participant", "gold_player_names",
+                "--indirect-selection", "cautious",
                 "--project-dir", str(ROOT/"dbt"), "--profiles-dir", str(ROOT/"dbt/profiles"),
                 "--target-path", str(artifacts/"target"), "--log-path", str(artifacts/"logs")],
                 check=True, timeout=180, cwd=ROOT)
