@@ -1,4 +1,91 @@
 ﻿services:
+  spark-master:
+    profiles: ["spark"]
+    image: myleague-spark:3.5.8
+    build:
+      context: .
+      dockerfile: services/spark/Dockerfile
+    restart: unless-stopped
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: ["ALL"]
+    entrypoint: ["/opt/spark/bin/spark-class"]
+    command: ["org.apache.spark.deploy.master.Master", "--host", "spark-master", "--port", "7077", "--webui-port", "8080"]
+    environment:
+      SPARK_DAEMON_MEMORY: 256m
+    mem_limit: 512m
+    cpus: 0.5
+    ports: ["127.0.0.1:18081:8080"]
+    networks: [spark_cluster, local_ui]
+
+  spark-worker-1:
+    profiles: ["spark"]
+    image: myleague-spark:3.5.8
+    build:
+      context: .
+      dockerfile: services/spark/Dockerfile
+    restart: unless-stopped
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: ["ALL"]
+    entrypoint: ["/opt/spark/bin/spark-class"]
+    command: ["org.apache.spark.deploy.worker.Worker", "--cores", "1", "--memory", "1g", "--work-dir", "/tmp/spark-work", "--webui-port", "8081", "spark://spark-master:7077"]
+    environment:
+      SPARK_DAEMON_MEMORY: 128m
+    mem_limit: 1536m
+    cpus: 1.0
+    depends_on: [spark-master]
+    networks: [spark_cluster, warehouse]
+
+  spark-worker-2:
+    profiles: ["spark"]
+    image: myleague-spark:3.5.8
+    build:
+      context: .
+      dockerfile: services/spark/Dockerfile
+    restart: unless-stopped
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: ["ALL"]
+    entrypoint: ["/opt/spark/bin/spark-class"]
+    command: ["org.apache.spark.deploy.worker.Worker", "--cores", "1", "--memory", "1g", "--work-dir", "/tmp/spark-work", "--webui-port", "8081", "spark://spark-master:7077"]
+    environment:
+      SPARK_DAEMON_MEMORY: 128m
+    mem_limit: 1536m
+    cpus: 1.0
+    depends_on: [spark-master]
+    networks: [spark_cluster, warehouse]
+
+  spark-runner:
+    profiles: ["spark"]
+    image: myleague-spark:3.5.8
+    build:
+      context: .
+      dockerfile: services/spark/Dockerfile
+    restart: unless-stopped
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: ["ALL"]
+    entrypoint: ["python3", "/opt/myleague/runner.py"]
+    environment:
+      GOLD_POSTGRES_HOST: gold-postgres
+      GOLD_POSTGRES_PORT: 5432
+      GOLD_POSTGRES_USER: ${GOLD_POSTGRES_USER:-gold}
+      GOLD_POSTGRES_PASSWORD: ${GOLD_POSTGRES_PASSWORD}
+      GOLD_POSTGRES_DB: ${GOLD_POSTGRES_DB:-gold}
+    mem_limit: 1536m
+    cpus: 1.0
+    depends_on:
+      pgsql-init:
+        condition: service_completed_successfully
+      spark-worker-1:
+        condition: service_started
+      spark-worker-2:
+        condition: service_started
+    ports: ["127.0.0.1:14040:4040"]
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8090/health', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    networks: [spark_cluster, warehouse]
+
   postgres:
     image: postgres:15
     container_name: myleague-airflow-postgres
@@ -364,6 +451,8 @@ volumes:
   grafana_data:
 
 networks:
+  spark_cluster:
+    internal: true
   local_ui:
     name: myleague-local-ui
     ipam:

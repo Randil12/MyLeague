@@ -6,6 +6,8 @@
 !services/
 !services/riot-live/
 !services/riot-live/**
+!services/spark/
+!services/spark/**
 !jobs/
 !jobs/**
 **/node_modules/

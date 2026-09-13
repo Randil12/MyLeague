@@ -6,6 +6,18 @@ Projet de fin d'études (RNCP 39586 — Ingénieur en science des données).
 
 **Problématique** : comment une structure e-sport peut-elle transformer des données de jeu massives, hétérogènes et en évolution constante (un patch toutes les deux semaines) en analyses fiables de la méta, afin d'éclairer ses décisions de draft, d'entraînement et de coaching ?
 
+## Calcul distribué Spark (optionnel)
+
+Le profil Docker Compose `spark` ajoute un master, deux workers et un lanceur
+interne piloté par le DAG manuel `spark_matchups`. Il calcule les match-ups par
+champion, rôle et patch à partir des participants Gold issus de dbt, puis publie
+`gold.spark_champion_matchups`. Il complète la collecte quasi-temps réel sans la modifier.
+
+Voir le [guide Spark](services/spark/README.md) pour le déploiement, le test
+synthétique, les requêtes de consultation et la preuve d'exécution sur deux workers.
+Sur un VPS unique, il s'agit de plusieurs processus distribués sur une seule machine,
+pas d'une infrastructure multi-serveurs. Le frontend n'est pas modifié par cet ajout.
+
 ## Architecture technique en médaillon
 
 ```mermaid
