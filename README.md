@@ -6,6 +6,32 @@ Projet de fin d'études (RNCP 39586 — Ingénieur en science des données).
 
 **Problématique** : comment une structure e-sport peut-elle transformer des données de jeu massives, hétérogènes et en évolution constante (un patch toutes les deux semaines) en analyses fiables de la méta, afin d'éclairer ses décisions de draft, d'entraînement et de coaching ?
 
+## Pseudos dans l'application
+
+Les sélecteurs de joueurs utilisent le dernier Riot ID connu (`Pseudo#TAG`) dans
+les matchs collectés, via `gold.gold_player_names`, ou le pseudo enregistré dans
+le suivi Academy. Sans identité connue, ils affichent « Pseudo indisponible »,
+jamais un morceau de PUUID. Le PUUID reste la clé interne de sélection et de jointure.
+Les pseudos issus des matchs sont historiques : un renommage sera visible après
+collecte d'un nouveau match et build dbt, sans appels Riot supplémentaires.
+
+Après pull, créer ce modèle **avant** de reconstruire le service web :
+
+```bash
+docker compose exec -T airflow dbt build --select +gold_player_names --project-dir /opt/airflow/dbt --profiles-dir /opt/airflow/dbt/profiles
+docker compose up -d --build web
+```
+
+Les prochains `dbt_transform` rafraîchiront automatiquement les pseudos. La liste
+« En direct » utilise déjà les Riot IDs saisis par le coach et reste inchangée.
+
+## CI/CD GitHub Actions
+
+La CI s'exécute sur `dev`, `main` et les pull requests : tests unitaires, frontend,
+builds Docker et intégrations sur PostgreSQL/MinIO/dbt/Spark jetables. Le déploiement
+VPS est déclenché manuellement après les tests et nécessite les secrets SSH de
+l'environnement GitHub `production`. Voir le [guide CI/CD](CI_CD.md).
+
 ## Calcul distribué Spark (optionnel)
 
 Le profil Docker Compose `spark` ajoute un master, deux workers et un lanceur

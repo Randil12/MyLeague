@@ -2,10 +2,18 @@
 
 PATCHES = "SELECT patch, total_matches, avg_duration_min, last_game_at FROM gold.gold_patch_summary"
 PLAYERS = """
-SELECT puuid, coalesce(riot_summoner_name, left(puuid, 12) || '…') AS player_name, tier,
-       tracking_source
-FROM audit.riot_tracked_players WHERE is_tracked
-ORDER BY (tracking_source = 'academy') DESC, last_seen_master_plus_at DESC NULLS LAST, puuid
+SELECT t.puuid,
+       coalesce(n.riot_id,
+                CASE WHEN t.riot_summoner_name LIKE '%#%'
+                     THEN nullif(btrim(t.riot_summoner_name), t.puuid) END,
+                n.display_name, nullif(nullif(btrim(t.riot_summoner_name), ''), t.puuid),
+                'Pseudo indisponible') AS player_name,
+       t.tier, t.tracking_source
+FROM audit.riot_tracked_players t
+LEFT JOIN gold.gold_player_names n ON n.puuid = t.puuid
+WHERE t.is_tracked
+ORDER BY (t.tracking_source = 'academy') DESC,
+         t.last_seen_master_plus_at DESC NULLS LAST, t.puuid
 LIMIT 500
 """
 # Discard ambiguous / duplicate role assignments before matching opponents.

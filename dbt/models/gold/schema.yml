@@ -1,6 +1,14 @@
 version: 2
 
 models:
+  - name: gold_player_names
+    description: "Dernier Riot ID ou pseudo connu dans les matchs collectés, indexé par PUUID."
+    columns:
+      - name: puuid
+        tests: [unique, not_null]
+      - name: display_name
+        tests: [not_null]
+
   - name: fact_match_participant
     description: >
       Table de faits du modèle en étoile (grain : un participant par match).

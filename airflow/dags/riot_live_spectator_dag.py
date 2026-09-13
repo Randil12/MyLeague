@@ -5,6 +5,7 @@ from datetime import timedelta
 from airflow.sdk import dag, task
 from pendulum import datetime
 
+
 @dag(
     dag_id="riot_live_spectator",
     description=(

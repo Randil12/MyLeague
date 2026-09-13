@@ -284,7 +284,8 @@ def upsert_tracked_player(conn, entry: dict[str, Any], summoner: dict[str, Any],
                 account_id = EXCLUDED.account_id,
                 profile_icon_id = EXCLUDED.profile_icon_id,
                 summoner_level = EXCLUDED.summoner_level,
-                riot_summoner_name = EXCLUDED.riot_summoner_name,
+                riot_summoner_name = COALESCE(NULLIF(EXCLUDED.riot_summoner_name, ''),
+                                              audit.riot_tracked_players.riot_summoner_name),
                 tier = EXCLUDED.tier,
                 rank = EXCLUDED.rank,
                 league_points = EXCLUDED.league_points,
@@ -1147,7 +1148,6 @@ if __name__ == "__main__":  # pragma: no cover
     )
     for key, value in result.items():
         print(f"{key}={value}")
-
 
 
 

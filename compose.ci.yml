@@ -1,0 +1,53 @@
+# Isolated test stack. Never load the production Compose file or .env.
+name: myleague-ci
+services:
+  postgres:
+    image: postgres:15
+    environment:
+      POSTGRES_USER: gold
+      POSTGRES_PASSWORD: ci-only-password
+      POSTGRES_DB: myleague_ci
+    ports: ["127.0.0.1:25432:5432"]
+    tmpfs: [/var/lib/postgresql/data]
+    healthcheck:
+      test: [CMD-SHELL, "pg_isready -U gold -d myleague_ci"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+  minio:
+    image: quay.io/minio/minio:RELEASE.2025-04-22T22-12-26Z
+    command: [server, /data]
+    environment:
+      MINIO_ROOT_USER: ci-minio
+      MINIO_ROOT_PASSWORD: ci-minio-password
+    ports: ["127.0.0.1:29000:9000"]
+    tmpfs: [/data]
+  spark-master:
+    image: myleague-spark:ci
+    build:
+      context: .
+      dockerfile: services/spark/Dockerfile
+    entrypoint: [/opt/spark/bin/spark-class]
+    command: [org.apache.spark.deploy.master.Master, --host, spark-master, --port, "7077"]
+    environment:
+      SPARK_DAEMON_MEMORY: 256m
+  spark-worker-1: &worker
+    image: myleague-spark:ci
+    entrypoint: [/opt/spark/bin/spark-class]
+    command: [org.apache.spark.deploy.worker.Worker, --cores, "1", --memory, 1g, --work-dir, /tmp/spark-work, "spark://spark-master:7077"]
+    environment:
+      SPARK_DAEMON_MEMORY: 128m
+    depends_on: [spark-master]
+  spark-worker-2:
+    <<: *worker
+  spark-runner:
+    image: myleague-spark:ci
+    entrypoint: [python3, /opt/myleague/runner.py]
+    environment:
+      GOLD_POSTGRES_HOST: postgres
+      GOLD_POSTGRES_PORT: 5432
+      GOLD_POSTGRES_USER: gold
+      GOLD_POSTGRES_PASSWORD: ci-only-password
+      GOLD_POSTGRES_DB: myleague_ci
+    ports: ["127.0.0.1:28090:8090"]
+    depends_on: [postgres, spark-worker-1, spark-worker-2]

@@ -1,38 +1,50 @@
 name: CI
-
 on:
   push:
-    branches: [main]
+    branches: [main, dev]
   pull_request:
-
+  workflow_dispatch:
+    inputs:
+      deploy:
+        description: "Déployer sur le VPS après les tests"
+        type: boolean
+        default: false
+permissions:
+  contents: read
+concurrency:
+  group: ci-${{ github.ref }}-${{ github.event_name }}
+  cancel-in-progress: false
 jobs:
   lint-and-test:
-    name: Lint (ruff) + tests unitaires (pytest)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
-
+        with:
+          persist-credentials: false
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
-
-      - name: Install dev dependencies
-        run: pip install -r requirements-dev.txt
-
-      - name: Ruff (lint)
-        run: ruff check jobs tests airflow/dags app backend
-
-      - name: Pytest (tests unitaires)
-        run: pytest -q
-
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements-dev.txt
+      - run: ruff check jobs tests airflow/dags app backend services/spark
+      - run: pytest -q --ignore=tests/integration --junitxml=reports/unit.xml
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: unit-results
+          path: reports/
+          retention-days: 7
   frontend:
-    name: Frontend React (types, tests et build)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
     defaults:
       run:
         working-directory: frontend
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: actions/setup-node@v4
         with:
           node-version: "24"
@@ -41,30 +53,97 @@ jobs:
       - run: npm ci
       - run: npm test
       - run: npm run build
-
-  dbt-validate:
-    name: Validation du projet dbt
-    runs-on: ubuntu-latest
+  compose-validate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
-
+        with:
+          persist-credentials: false
+      - name: Validate without production secrets
+        run: |
+          cp .env.example .env
+          docker compose --profile spark config --quiet
+          docker compose -f compose.ci.yml config --quiet
+          bash -n scripts/deploy-vps.sh
+  integration:
+    name: Integration PostgreSQL + MinIO + dbt + Spark
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
-
-      - name: Install dbt
-        run: pip install dbt-postgres==1.9.0
-
-      - name: dbt parse (valide modèles, macros et configs sans connexion)
-        run: dbt parse --no-partial-parse --project-dir dbt --profiles-dir dbt/profiles
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements-dev.txt
+      - name: Build isolated images (Spark once)
+        run: |
+          docker compose -f compose.ci.yml build spark-master
+          docker build -f backend/Dockerfile -t myleague-web:ci .
+          docker build -f services/riot-live/Dockerfile -t myleague-live:ci .
+      - name: Start disposable stack
+        run: docker compose -f compose.ci.yml up -d --no-build --wait --wait-timeout 120
+      - name: Real integration tests; no external Riot requests
         env:
-          GOLD_POSTGRES_HOST: localhost
-
-  compose-validate:
-    name: Validation Docker Compose
-    runs-on: ubuntu-latest
+          RUN_INTEGRATION_TESTS: "1"
+        run: pytest tests/integration -v --junitxml=reports/integration.xml
+      - name: Diagnostic logs
+        if: always()
+        run: |
+          mkdir -p reports
+          docker compose -f compose.ci.yml logs --no-color > reports/containers.log
+          docker compose -f compose.ci.yml ps -a > reports/containers-status.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: integration-results
+          path: reports/
+          retention-days: 7
+      - name: Remove only the isolated CI stack
+        if: always()
+        run: docker compose -f compose.ci.yml down --volumes --remove-orphans
+  deploy:
+    name: Deploy tested commit to VPS
+    needs: [lint-and-test, frontend, compose-validate, integration]
+    if: github.event_name == 'workflow_dispatch' && inputs.deploy && (github.ref == 'refs/heads/dev' || github.ref == 'refs/heads/main')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    environment: production
+    concurrency:
+      group: deploy-production
+      cancel-in-progress: false
     steps:
       - uses: actions/checkout@v4
-
-      - name: Vérifier la configuration Compose
-        run: docker compose config --quiet
+        with:
+          persist-credentials: false
+      - name: Deploy through verified SSH host
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+          VPS_PORT: ${{ secrets.VPS_PORT }}
+          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+          VPS_KNOWN_HOSTS: ${{ secrets.VPS_KNOWN_HOSTS }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          : "${VPS_HOST:?Missing VPS_HOST}" "${VPS_USER:?Missing VPS_USER}"
+          : "${VPS_SSH_KEY:?Missing VPS_SSH_KEY}" "${VPS_KNOWN_HOSTS:?Missing VPS_KNOWN_HOSTS}"
+          [[ "$VPS_HOST" =~ ^[a-zA-Z0-9][a-zA-Z0-9.-]*$ ]]
+          [[ "$VPS_USER" =~ ^[a-zA-Z_][a-zA-Z0-9_-]*$ ]]
+          port="${VPS_PORT:-22}"
+          [[ "$port" =~ ^[0-9]+$ ]]
+          install -m 700 -d "$RUNNER_TEMP/deploy-ssh"
+          umask 077
+          printf '%s\n' "$VPS_SSH_KEY" > "$RUNNER_TEMP/deploy-ssh/key"
+          printf '%s\n' "$VPS_KNOWN_HOSTS" > "$RUNNER_TEMP/deploy-ssh/known_hosts"
+          ssh -i "$RUNNER_TEMP/deploy-ssh/key" -p "$port" \
+            -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="$RUNNER_TEMP/deploy-ssh/known_hosts" \
+            -o ConnectTimeout=15 -o ServerAliveInterval=30 \
+            "$VPS_USER@$VPS_HOST" "bash -s -- $GITHUB_SHA" < scripts/deploy-vps.sh
+      - name: Remove temporary SSH key
+        if: always()
+        run: rm -f -- "$RUNNER_TEMP/deploy-ssh/key" "$RUNNER_TEMP/deploy-ssh/known_hosts"
