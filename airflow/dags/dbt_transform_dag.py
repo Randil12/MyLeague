@@ -31,7 +31,7 @@ def dbt_transform() -> None:
         # `dbt build` = run des modèles + exécution des tests de qualité de données.
         return (
             f"dbt build --project-dir {DBT_DIR} --profiles-dir {PROFILES_DIR} "
-            "--target dev --fail-fast"
+            "--target dev --exclude tag:leaguepedia_active --fail-fast"
         )
 
     dbt_build()

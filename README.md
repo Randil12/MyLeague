@@ -6,6 +6,15 @@ Projet de fin d'études (RNCP 39586 — Ingénieur en science des données).
 
 **Problématique** : comment une structure e-sport peut-elle transformer des données de jeu massives, hétérogènes et en évolution constante (un patch toutes les deux semaines) en analyses fiables de la méta, afin d'éclairer ses décisions de draft, d'entraînement et de coaching ?
 
+## Joueurs compétitifs actifs dans l'année
+
+Le nouveau DAG `leaguepedia_active_players` collecte les parties de l'année UTC
+courante toutes les heures à HH:15, reprend progressivement l'historique et
+construit trois tables Gold de participations, d'activité annuelle et de
+comparaison joueur/champion/patch. L'ancien DAG Leaguepedia conserve les
+référentiels. Voir [LEAGUEPEDIA_ACTIVE.md](LEAGUEPEDIA_ACTIVE.md) pour le périmètre,
+les limites de couverture, les tests et l'activation sur le VPS.
+
 ## Pseudos dans l'application
 
 Les sélecteurs de joueurs utilisent le dernier Riot ID connu (`Pseudo#TAG`) dans

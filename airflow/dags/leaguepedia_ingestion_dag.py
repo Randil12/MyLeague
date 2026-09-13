@@ -12,8 +12,8 @@ RAW_DIR = "/opt/airflow/data/bronze/leaguepedia"
 @dag(
     dag_id="leaguepedia_ingestion",
     description=(
-        "ELT Leaguepedia : tournois, équipes, joueurs et parties professionnelles "
-        "(picks/bans par patch) via l'API Cargo — comparaison méta pro vs solo queue."
+        "Référentiels Leaguepedia : tournois, équipes et fiches joueurs. "
+        "Les parties sont collectées par leaguepedia_active_players."
     ),
     schedule="0 1,7,13,19 * * *",  # UTC : toutes les 6 h, avant dbt (README.md).
     start_date=datetime(2026, 1, 1, tz="UTC"),
@@ -24,17 +24,6 @@ RAW_DIR = "/opt/airflow/data/bronze/leaguepedia"
     tags=["leaguepedia", "esport", "bronze", "elt"],
 )
 def leaguepedia_ingestion() -> None:
-    @task(execution_timeout=timedelta(minutes=25))
-    def ingest_year_history() -> dict:
-        from jobs.leaguepedia.yearly import run
-
-        return run(
-            raw_dir=RAW_DIR,
-            year=int(os.getenv("LEAGUEPEDIA_YEAR", "0")) or None,
-            max_pages=int(os.getenv("LEAGUEPEDIA_MAX_PAGES", "20")),
-            days_per_run=45,
-        )
-
     @task(execution_timeout=timedelta(minutes=40))
     def ingest_leaguepedia() -> dict:
         from jobs.leaguepedia.ingest import run
@@ -44,9 +33,10 @@ def leaguepedia_ingestion() -> None:
             year=int(os.getenv("LEAGUEPEDIA_YEAR", "0")) or None,
             lookback_days=int(os.getenv("LEAGUEPEDIA_LOOKBACK_DAYS", "30")),
             max_pages=int(os.getenv("LEAGUEPEDIA_MAX_PAGES", "20")),
+            include_scoreboards=False,  # Matches now belong to leaguepedia_active_players.
         )
 
-    ingest_year_history() >> ingest_leaguepedia()
+    ingest_leaguepedia()
 
 
 leaguepedia_ingestion()
