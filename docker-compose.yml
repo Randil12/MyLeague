@@ -226,7 +226,34 @@
       - warehouse
       - local_ui
 
+  web:
+    build: ./webapp
+    container_name: myleague-web
+    environment:
+      GOLD_POSTGRES_HOST: gold-postgres
+      GOLD_POSTGRES_PORT: 5432
+      GOLD_POSTGRES_DB: ${GOLD_POSTGRES_DB:-gold}
+      DATA_ANALYST_USER: ${DATA_ANALYST_USER:-data_analyst}
+      DATA_ANALYST_PASSWORD: ${DATA_ANALYST_PASSWORD:-changez-moi-analyst}
+    ports:
+      - "127.0.0.1:8501:8501"
+    depends_on:
+      pgsql-init:
+        condition: service_completed_successfully
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    networks:
+      - warehouse
+      - local_ui
+
   streamlit:
+    profiles: ["legacy"]
     build: ./app
     container_name: myleague-streamlit
     environment:
@@ -236,7 +263,7 @@
       DATA_ANALYST_USER: ${DATA_ANALYST_USER:-data_analyst}
       DATA_ANALYST_PASSWORD: ${DATA_ANALYST_PASSWORD:-changez-moi-analyst}
     ports:
-      - "127.0.0.1:8501:8501"
+      - "127.0.0.1:8502:8501"
     volumes:
       - ./app/app.py:/app/app.py
     depends_on:

@@ -1,6 +1,8 @@
 # Dépendances de développement et de CI
 -r requirements.txt
 -r app/requirements.txt
+-r webapp/requirements.txt
+httpx>=0.27,<1
 pytest>=8.0
 ruff>=0.4
 dbt-postgres==1.9.0

@@ -74,18 +74,70 @@ flowchart LR
     class AF orch;
 ```
 
-### Les 8 pipelines Airflow
+### Interface web coach / joueur
+
+L'interface personnalisée **MyLeague** remplace Streamlit au démarrage standard
+de Docker Compose (`web`, port privé VPS `8501`). Elle propose méta, préparation
+de draft, entraînement Academy, builds/runes, évolution des patchs, niveaux de jeu
+et supervision, depuis les vraies données Gold en lecture seule.
+
+Voir [le guide de migration et d'accès au site](webapp/README.md) pour le
+déploiement VPS, le tunnel SSH et les limites de sécurité. L'ancien Streamlit
+reste disponible avec le profil `legacy` sur le port privé `8502`.
+
+### Les 8 pipelines planifiés et le backfill manuel
 
 | DAG | Rôle | Pattern | Fréquence |
 |---|---|---|---|
-| `datadragon_ingestion` | Référentiel du jeu (champions, objets, runes) | ETL | Quotidien |
-| `riot_euw_ingestion` | Matchs classés + timelines EUW | ELT (E/L) | Quotidien |
-| `leaguepedia_ingestion` | Tournois, équipes, parties professionnelles | ELT (E/L) | Quotidien |
-| `patch_notes_scraping` | Notes de patch officielles | Scraping | Quotidien (à chaque nouveau patch) |
+| `datadragon_ingestion` | Référentiel du jeu (champions, objets, runes) | ETL | Chaque jour à 00:00 UTC |
+| `riot_euw_ingestion` | Matchs classés + timelines EUW | ELT (E/L) | Toutes les 3 h : 00:00, 03:00, …, 21:00 UTC |
+| `leaguepedia_ingestion` | Tournois, équipes, parties professionnelles | ELT (E/L) | Toutes les 6 h : 01:00, 07:00, 13:00, 19:00 UTC |
+| `patch_notes_scraping` | Notes de patch officielles | Scraping | Chaque jour à 02:00 UTC (si nouveau patch) |
 | `riot_live_spectator` | Parties en cours des joueurs suivis | Micro-batch temps réel | Toutes les 30 min |
-| `riot_academy_tracking` | Maîtrises des joueurs du club | ELT | Quotidien |
-| `dbt_transform` | Construction des tables d'analyse + tests qualité | ELT (T) | Quotidien |
+| `riot_academy_tracking` | Maîtrises des joueurs du club | ELT | Deux fois par jour : 04:45 et 16:45 UTC |
+| `dbt_transform` | Construction des tables d'analyse + tests qualité | ELT (T) | Toutes les 3 h : 02:00, 05:00, …, 23:00 UTC |
 | `pipeline_health_monitoring` | Détection des échecs et retards, notification optionnelle | Monitoring | Toutes les 15 min |
+| `riot_historical_backfill` | Rattrapage historique Riot sur 60 jours | ELT | Manuel uniquement |
+
+Les dates de départ des DAGs utilisent explicitement UTC, conformément au
+[fonctionnement des fuseaux Airflow](https://airflow.apache.org/docs/apache-airflow/stable/authoring-and-scheduling/timezone.html).
+En France métropolitaine, ajouter 1 heure en hiver et 2 heures en été : le build Gold
+de 02:00 UTC commence donc à 03:00 ou 04:00 heure de Paris.
+
+Ce planning intensif vise une collecte sur trois jours, mais ne s'arrête pas
+automatiquement après 72 heures. Revenir ensuite à une cadence quotidienne si nécessaire.
+Riot démarre huit fois par jour avec un timeout de 90 minutes ; dbt démarre deux
+heures après chaque départ Riot. Leaguepedia peut chevaucher la fin de Riot,
+mais dispose de 60 minutes avant dbt pour un timeout de 45 minutes.
+Academy démarre après le créneau maximal de Riot ; sa fin peut chevaucher dbt.
+Data Dragon et les patch notes restent quotidiens : augmenter leur fréquence
+n'augmente pas le nombre de matchs historiques disponibles.
+
+Avec les paramètres actuels (25 joueurs, 10 matchs par joueur, plafond de 250
+tentatives par run), 24 runs Riot sur 72 heures représentent au maximum 6 000
+tentatives de collecte, pas 6 000 nouveaux matchs garantis. Les quotas, erreurs,
+doublons et matchs disponibles réduisent le résultat. Le sélecteur privilégie les
+joueurs jamais collectés, puis ceux dont la dernière collecte est la plus ancienne.
+La fenêtre de sept jours n'est pas un historique exhaustif : la requête par joueur
+est limitée à dix matchs et n'est pas paginée. Ce planning privilégie donc
+l'élargissement de l'échantillon plutôt qu'un historique complet par joueur.
+Les timelines restent activées pour conserver les données utiles au coaching.
+Surveiller les erreurs 429/401/403, la validité de la clé Riot, les timeouts et
+l'espace disque ; si les runs échouent, corriger avant d'augmenter les plafonds.
+Le spectator reste actif à :00 et :30 et peut partager le quota Riot avec les ingestions.
+Le monitoring reste actif à :00, :15, :30 et :45. Le backfill consomme beaucoup
+d'appels API : le déclencher hors des créneaux Riot/Academy et éviter les relances simultanées.
+
+Tous les DAGs conservent `catchup=False` et limitent les runs actifs à un par DAG.
+Cela évite de rattraper automatiquement des mois d'historique après une interruption.
+Activer les huit DAGs planifiés dans l'interface Airflow après le déploiement ;
+une modification du code ne dépausera pas les DAGs déjà présents.
+
+Ce planning fixe ne constitue pas une dépendance entre DAGs : dbt démarre à l'heure prévue
+même si une ingestion échoue ou reste en retard. Contrôler les runs sources avant
+d'interpréter la fraîcheur du Gold ; après une reprise manuelle d'ingestion, relancer
+`dbt_transform`. Les tables d'audit ne couvrent pas encore tous les pipelines :
+vérifier également leurs états directement dans Airflow.
 
 L'architecture en médaillon est répartie entre le data lake et l'entrepôt : **MinIO est la couche Bronze** et conserve les objets sources rejouables ; `raw` est la zone d'atterrissage SQL ; `staging` et `intermediate` forment ensemble la couche Silver ; `gold` est la couche de consommation. Les schémas `reference` et `audit` sont transverses : le premier fournit les dimensions versionnées, le second assure la traçabilité des traitements. Devise : *MinIO conserve, PostgreSQL calcule.*
 
@@ -321,9 +373,10 @@ Le référentiel (`dim_champion`, et de même `dim_item`, `dim_rune`, `dim_summo
 | Postgres `gold` | Warehouse analytique | localhost:5433 |
 | dbt | Transformations SQL + tests de qualité | conteneur `myleague-dbt` |
 | Grafana | Dashboards méta + supervision | http://localhost:3000 |
-| Streamlit | Application web métier (coachs) | http://localhost:8501 |
+| MyLeague Web | Application coach / joueur (API + interface) | http://localhost:8501 |
+| Streamlit (profil `legacy`) | Ancienne interface de secours | http://localhost:8502 |
 
-### Fonctionnalités métier Streamlit
+### Fonctionnalités métier (MyLeague Web et interface historique)
 
 - **Tier list** : pickrate, banrate, présence et winrate avec seuil d'échantillon ;
 - **Préparation de draft** : recommandations explicables, filtres par rôle et confiance ;
@@ -376,7 +429,7 @@ tests/            Tests unitaires (pytest)
 
 Les joueurs sont identifiés par leur `puuid` (identifiant pseudonymisé fourni par Riot) ; aucun nom réel n'est collecté ni stocké. Les secrets (clé API Riot, mots de passe) sont gérés par variables d'environnement via `.env`, exclu du versioning.
 
-Principe du moindre privilège (`postgres/init_roles.sql`) : le rôle `data_engineer` a accès à tous les schémas data ; le rôle `data_analyst` est en lecture seule sur `gold`, `reference` et `audit` — c'est ce rôle qu'utilisent Grafana et l'application Streamlit, qui ne peuvent donc ni écrire ni accéder aux zones brutes.
+Principe du moindre privilège (`postgres/init_roles.sql`) : le rôle `data_engineer` a accès à tous les schémas data ; le rôle `data_analyst` est en lecture seule sur `gold`, `reference` et `audit` — c'est ce rôle qu'utilisent Grafana, MyLeague Web et le Streamlit historique, qui ne peuvent donc ni écrire ni accéder aux zones brutes.
 
 ### État des contrôles de sécurité
 
@@ -386,7 +439,7 @@ La documentation distingue les contrôles réellement présents dans le dépôt 
 |---|---|---|
 | Pseudonymisation des joueurs par `puuid` | Actif | Aucun état civil nécessaire aux analyses |
 | Séparation des rôles PostgreSQL | Actif | `data_engineer` et `data_analyst` dans `postgres/init_roles.sql` |
-| Lecture seule de Streamlit et Grafana | Actif | Connexion avec `data_analyst`, sans droit sur `raw`, `staging` ou `intermediate` |
+| Lecture seule de MyLeague Web et Grafana | Actif | Connexion avec `data_analyst`, sans droit sur `raw`, `staging` ou `intermediate` |
 | Segmentation des réseaux Docker | Actif en développement | Six réseaux déclarés dans `docker-compose.yml`, dont trois `internal: true` ; `local_data_admin` reste un pont d'administration partagé |
 | Limitation des ports au poste local | Actif en développement | Tous les ports publiés écoutent uniquement sur `127.0.0.1` |
 | HTTPS vers Riot, Data Dragon et Leaguepedia | Actif | Clients sortants configurés avec des URL HTTPS |
@@ -406,7 +459,7 @@ flowchart LR
     ADMIN["Data engineer"]
     SOURCES["Riot · Data Dragon<br/>Leaguepedia · sites officiels"]
 
-    ST["Streamlit<br/>127.0.0.1:8501"]
+    ST["MyLeague Web<br/>127.0.0.1:8501"]
     GRAF["Grafana<br/>127.0.0.1:3000"]
     AF["Airflow<br/>127.0.0.1:8080<br/>membre des 4 réseaux"]
     DBT["dbt"]
@@ -450,11 +503,11 @@ Les réseaux Docker assurent une isolation par appartenance : un conteneur ne r�
 
 | Réseau | Sous-réseau | Services autorisés | Règle active |
 |---|---|---|---|
-| `local_ui` | `172.30.10.0/24` | `streamlit`, `pgsql-init` | Réseau local de l'interface et du bootstrap ; aucun accès entrant externe |
+| `local_ui` | `172.30.10.0/24` | `web`, `streamlit` (legacy), `pgsql-init`, `grafana` | Réseau local de l'interface et du bootstrap ; aucun accès entrant externe |
 | `local_data_admin` | `172.30.15.0/24` | `postgres`, `minio`, `gold-postgres` | Pont local d'administration ; ce réseau partagé n'est pas une frontière d'isolation |
 | `airflow_control` | `172.30.20.0/24` | `postgres`, `airflow` | Seul Airflow accède à sa base de métadonnées |
-| `lake` | `172.30.30.0/24` | `minio`, `minio-init`, `airflow` | Streamlit, Grafana et dbt ne peuvent pas joindre MinIO |
-| `warehouse` | `172.30.40.0/24` | `gold-postgres`, `pgsql-init`, `airflow`, `dbt`, `streamlit`, `grafana` | Accès réseau au warehouse, puis filtrage SQL par rôle |
+| `lake` | `172.30.30.0/24` | `minio`, `minio-init`, `airflow` | MyLeague Web, Streamlit, Grafana et dbt ne peuvent pas joindre MinIO |
+| `warehouse` | `172.30.40.0/24` | `gold-postgres`, `pgsql-init`, `airflow`, `dbt`, `web`, `streamlit` (legacy), `grafana` | Accès réseau au warehouse, puis filtrage SQL par rôle |
 | `airflow_egress` | `172.30.50.0/24` | `airflow` | Seul Airflow dispose du réseau de sortie destiné aux collectes |
 | `edge` | `172.30.10.0/24` | Reverse proxy uniquement | Prévu en production ; non déclaré dans Compose aujourd'hui |
 
@@ -465,10 +518,10 @@ Tous les ports publiés sont liés à `127.0.0.1`. Cette mesure empêche une exp
 | Priorité | Source | Destination | Décision | État |
 |---:|---|---|---|---|
 | 1 | Internet | PostgreSQL, MinIO | Refuser tout accès direct | Actif sur le réseau local grâce au binding `127.0.0.1`; fermeture totale prévue en production |
-| 2 | Coach | Streamlit, Grafana | Autoriser uniquement les interfaces métier | Actif en local ; passage par le reverse proxy prévu |
+| 2 | Coach | MyLeague Web, Grafana | Autoriser uniquement les interfaces métier | Accès privé via SSH ; reverse proxy authentifié prévu |
 | 3 | Data engineer | Airflow et outils d'administration | Autoriser depuis le poste local ; VPN/bastion prévu en production | Partiel |
-| 4 | Streamlit, Grafana | PostgreSQL Gold | Autoriser TCP 5432 avec `data_analyst` | Actif |
-| 5 | Streamlit, Grafana, dbt | MinIO | Refuser par absence d'appartenance au réseau `lake` | Actif |
+| 4 | MyLeague Web, Grafana | PostgreSQL Gold | Autoriser TCP 5432 avec `data_analyst` | Actif |
+| 5 | MyLeague Web, Grafana, dbt | MinIO | Refuser par absence d'appartenance au réseau `lake` | Actif |
 | 6 | Airflow | MinIO, PostgreSQL Gold, PostgreSQL Airflow | Autoriser uniquement les flux nécessaires aux pipelines | Actif par segmentation réseau |
 | 7 | Airflow | Sources externes | Autoriser HTTPS 443 sortant | Actif |
 | 8 | Tout autre flux interzone | Toute destination | Refus implicite par absence de réseau commun | Actif, dans les limites du modèle réseau Docker |
@@ -477,7 +530,7 @@ Tous les ports publiés sont liés à `127.0.0.1`. Cette mesure empêche une exp
 
 | Source | Destination | Port | Protocole actuel | Identité ou contrôle | État cible |
 |---|---|---:|---|---|---|
-| Coach | Streamlit | 8501 | HTTP/TCP sur `127.0.0.1` | Accès local | HTTPS 443 via reverse proxy et authentification |
+| Coach | MyLeague Web | 8501 | HTTP/TCP sur `127.0.0.1` | Tunnel SSH | HTTPS 443 via reverse proxy et authentification |
 | Coach | Grafana | 3000 | HTTP/TCP sur `127.0.0.1` | Compte Grafana | HTTPS 443 via reverse proxy |
 | Data engineer | Airflow | 8080 | HTTP/TCP sur `127.0.0.1` | Compte administrateur Airflow | HTTPS 443 depuis VPN/bastion |
 | Data engineer | PostgreSQL Gold | 5433 vers 5432 | PostgreSQL/TCP sur `127.0.0.1` | `data_engineer` | `sslmode=verify-full` depuis VPN/bastion |
@@ -488,7 +541,7 @@ Tous les ports publiés sont liés à `127.0.0.1`. Cette mesure empêche une exp
 | `minio-init` | MinIO | 9000 | S3 sur HTTP/TCP interne | Compte root MinIO | Compte de bootstrap temporaire, puis révocation |
 | Airflow | PostgreSQL Gold | 5432 | PostgreSQL/TCP interne | Compte technique `gold` | TLS et compte d'ingestion dédié à droits minimaux |
 | dbt | PostgreSQL Gold | 5432 | PostgreSQL/TCP interne | Compte technique `gold` | TLS et compte dbt dédié |
-| Streamlit | PostgreSQL Gold | 5432 | PostgreSQL/TCP interne | `data_analyst` en lecture seule | TLS `verify-full`, même rôle |
+| MyLeague Web | PostgreSQL Gold | 5432 | PostgreSQL/TCP interne | `data_analyst` en lecture seule | TLS `verify-full`, même rôle |
 | Grafana | PostgreSQL Gold | 5432 | PostgreSQL/TCP interne | `data_analyst` en lecture seule | TLS `verify-full`, même rôle |
 | `pgsql-init` | PostgreSQL Gold | 5432 | PostgreSQL/TCP interne | Superutilisateur au bootstrap | Compte bootstrap temporaire et secret monté |
 
@@ -558,7 +611,7 @@ Les tests marqués **actifs** peuvent être exécutés sur la stack locale. Les 
 | SEC-DB-01 | `data_analyst` exécute un `SELECT` sur `gold.gold_patch_summary` | Succès | Contrôle actif, test à consigner |
 | SEC-DB-02 | `data_analyst` exécute un `DELETE` sur une table Gold | `permission denied` | Contrôle actif, test à consigner |
 | SEC-DB-03 | `data_analyst` exécute un `SELECT` sur `raw.riot_matches` | `permission denied` | Contrôle actif, test à consigner |
-| SEC-NET-01 | Streamlit tente de résoudre ou joindre `minio:9000` | Échec : aucun réseau commun | Actif après recréation de la stack |
+| SEC-NET-01 | MyLeague Web tente de résoudre ou joindre `minio:9000` | Échec : aucun réseau commun | À vérifier après déploiement de `web` |
 | SEC-NET-02 | Grafana tente de joindre la base de métadonnées Airflow | Échec : aucun réseau commun | Actif après recréation de la stack |
 | SEC-NET-03 | Une autre machine du LAN tente `IP_DU_POSTE:5433` | Connexion refusée, écoute limitée à `127.0.0.1` | Actif après recréation de la stack |
 | SEC-TLS-01 | Client HTTPS vérifie le certificat du reverse proxy | Chaîne valide, TLS 1.2 ou 1.3, nom d'hôte correct | Cible |
@@ -584,8 +637,8 @@ docker exec -e PGPASSWORD="$DATA_ANALYST_PASSWORD" myleague-gold-postgres psql -
 Exemple de test d'isolation réseau actif :
 
 ```bash
-# Doit échouer : Streamlit n'est pas membre du réseau lake.
-docker exec myleague-streamlit python -c "import socket; socket.create_connection(('minio', 9000), timeout=3)"
+# Doit échouer : MyLeague Web n'est pas membre du réseau lake.
+docker exec myleague-web python -c "import socket; socket.create_connection(('minio', 9000), timeout=3)"
 ```
 
 Exemples de vérification cible après activation de TLS :

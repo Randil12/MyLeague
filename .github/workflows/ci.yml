@@ -20,10 +20,19 @@ jobs:
         run: pip install -r requirements-dev.txt
 
       - name: Ruff (lint)
-        run: ruff check jobs tests airflow/dags app
+        run: ruff check jobs tests airflow/dags app webapp
 
       - name: Pytest (tests unitaires)
         run: pytest -q
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Interface web (syntaxe et tests sans navigateur)
+        run: |
+          node --check webapp/static/app.js
+          node --test tests/webapp_frontend.test.cjs
 
   dbt-validate:
     name: Validation du projet dbt
