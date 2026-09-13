@@ -133,7 +133,7 @@ def init_leaguepedia_schema(conn) -> None:
     conn.commit()
 
 
-def start_run(conn, run_id: str) -> None:
+def start_run(conn, run_id: str, pipeline_name: str = PIPELINE_NAME) -> None:
     with conn.cursor() as cur:
         cur.execute(
             """
@@ -141,7 +141,7 @@ def start_run(conn, run_id: str) -> None:
             VALUES (%s, %s, 'leaguepedia', %s, 'running')
             ON CONFLICT (run_id) DO UPDATE SET status = 'running', started_at = EXCLUDED.started_at
             """,
-            (run_id, PIPELINE_NAME, utc_now()),
+            (run_id, pipeline_name, utc_now()),
         )
     conn.commit()
 
@@ -285,6 +285,7 @@ def run(
     year: int | None = None,
     lookback_days: int = 30,
     max_pages: int = 20,
+    include_scoreboards: bool = True,
 ) -> dict[str, Any]:
     raw_path = Path(raw_dir)
     minio_config = get_minio_config()
@@ -309,6 +310,10 @@ def run(
             client, since_iso, max_pages=max_pages
         ),
     }
+
+    if not include_scoreboards:
+        del fetchers["scoreboard_games"]
+        del fetchers["scoreboard_players"]
 
     try:
         init_leaguepedia_schema(conn)

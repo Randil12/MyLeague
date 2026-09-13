@@ -28,7 +28,8 @@ def fetch_complete(client, fetcher, start, end, max_pages):
                 + fetch_complete(client, fetcher, middle, end, max_pages))
 
 
-def run(raw_dir, year=None, max_pages=20, days_per_run=45, budget_seconds=900):
+def run(raw_dir, year=None, max_pages=20, days_per_run=45, budget_seconds=900,
+        revisit_after_seconds=0, pipeline_name=ingest.PIPELINE_NAME):
     now = ingest.utc_now().replace(microsecond=0)
     target_year = year or now.year
     if not 2000 <= target_year <= now.year or days_per_run < 3:
@@ -42,6 +43,10 @@ def run(raw_dir, year=None, max_pages=20, days_per_run=45, budget_seconds=900):
     started = False
     deadline = monotonic() + budget_seconds
     try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT pg_try_advisory_lock(74120504)")
+            if not cur.fetchone()[0]:
+                raise RuntimeError("Another Leaguepedia annual collector is already running")
         ingest.init_leaguepedia_schema(conn)
         with conn.cursor() as cur:
             cur.execute("""CREATE TABLE IF NOT EXISTS audit.leaguepedia_year_days (
@@ -52,7 +57,7 @@ def run(raw_dir, year=None, max_pages=20, days_per_run=45, budget_seconds=900):
                         (start.date(), datetime(target_year + 1, 1, 1).date()))
             checked = dict(cur.fetchall())
         conn.commit()
-        ingest.start_run(conn, run_id)
+        ingest.start_run(conn, run_id, pipeline_name)
         started = True
         client = ingest.get_client()
         config = ingest.get_minio_config()
@@ -60,6 +65,8 @@ def run(raw_dir, year=None, max_pages=20, days_per_run=45, budget_seconds=900):
         recent = periods[-2:] if target_year == now.year else []
         recent_dates = {a.date() for a, _ in recent}
         older = [p for p in periods if p[0].date() not in recent_dates]
+        older = [p for p in older if p[0].date() not in checked
+                 or (now - checked[p[0].date()]).total_seconds() >= revisit_after_seconds]
         older.sort(key=lambda p: (p[0].date() in checked,
                                  checked.get(p[0].date(), start), p[0]))
         for lower, upper in (recent + older)[:days_per_run]:
