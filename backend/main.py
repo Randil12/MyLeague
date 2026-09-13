@@ -25,7 +25,7 @@ async def headers(request, call_next):
     response.headers["Referrer-Policy"] = "no-referrer"
     response.headers["Content-Security-Policy"] = (
         "default-src 'self'; script-src 'self'; style-src 'self'; "
-        "img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'"
+        "img-src 'self' data: https://ddragon.leagueoflegends.com; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'"
     )
     if request.url.path.startswith("/api/"):
         response.headers["Cache-Control"] = "no-store"
@@ -54,6 +54,18 @@ def patches():
 @app.get("/api/players")
 def players():
     return db.query(queries.PLAYERS)
+
+
+@app.get("/api/champions")
+def champions():
+    return db.query("""SELECT DISTINCT ON (champion_key) champion_key, champion_id, name, version
+        FROM reference.dim_champion
+        ORDER BY champion_key, string_to_array(version, '.')::int[] DESC, locale""")
+
+
+@app.get("/api/leaderboard")
+def leaderboard():
+    return db.query(queries.LEADERBOARD)
 
 
 @app.get("/api/data/{dataset}")
@@ -89,6 +101,14 @@ def team(patch: Annotated[str, Query(min_length=1, max_length=32)],
     if len(set(roster)) != 5 or any(not p or len(p) > 256 for p in roster):
         raise HTTPException(422, "Sélectionne cinq joueurs distincts")
     return db.query(queries.TEAM, {"patch": patch, "roster": roster})
+
+
+@app.get("/api/team/summary")
+def team_summary(patch: Annotated[str, Query(min_length=1, max_length=32)],
+                 roster: Annotated[list[str], Query(min_length=5, max_length=5)]):
+    if len(set(roster)) != 5 or any(not p or len(p) > 256 for p in roster):
+        raise HTTPException(422, "Sélectionne cinq joueurs distincts")
+    return db.query(queries.TEAM_SUMMARY, {"patch": patch, "roster": roster})
 
 
 @app.get("/")

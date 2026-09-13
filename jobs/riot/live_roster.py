@@ -44,15 +44,23 @@ def init_roster(cur):
         SELECT puuid, 'euw1', riot_id, created_at, created_at, false, false, 'live'
         FROM raw.riot_live_roster WHERE true
         ON CONFLICT (puuid) DO NOTHING""")
+    # Existing coach roster now also opts into match collection.
+    cur.execute("""UPDATE audit.riot_tracked_players t
+        SET is_tracked=true, riot_summoner_name=r.riot_id,
+            tracking_source=CASE WHEN t.tracking_source='live' THEN 'club' ELSE t.tracking_source END
+        FROM raw.riot_live_roster r WHERE r.puuid=t.puuid""")
 
 
 def register_live_identity(cur, puuid, riot_id):
-    # Registration only: do not enable historical ingestion or modify Academy/ladder flags.
+    # Register the coach's players for historical matches as well as spectator.
     cur.execute("""INSERT INTO audit.riot_tracked_players
         (puuid, region, riot_summoner_name, first_seen_master_plus_at,
          last_seen_master_plus_at, is_currently_master_plus, is_tracked, tracking_source)
-        VALUES (%s, 'euw1', %s, now(), now(), false, false, 'live')
-        ON CONFLICT (puuid) DO NOTHING""", (puuid, riot_id))
+        VALUES (%s, 'euw1', %s, now(), now(), false, true, 'club')
+        ON CONFLICT (puuid) DO UPDATE SET is_tracked=true,
+            riot_summoner_name=EXCLUDED.riot_summoner_name,
+            tracking_source=CASE WHEN audit.riot_tracked_players.tracking_source='live'
+                                THEN 'club' ELSE audit.riot_tracked_players.tracking_source END""", (puuid, riot_id))
 
 
 def resolve(value):
@@ -112,6 +120,9 @@ def roster_request(method, path, body=None):
                     return {"id": cur.fetchone()[0], "riot_id": riot_id}
                 if method == "DELETE" and path.startswith("/roster/") and path[8:].isdigit():
                     cur.execute("SELECT pg_advisory_xact_lock(74120503)")
+                    cur.execute("""UPDATE audit.riot_tracked_players SET is_tracked=false
+                        WHERE tracking_source='club' AND puuid IN
+                        (SELECT puuid FROM raw.riot_live_roster WHERE id=%s)""", (int(path[8:]),))
                     cur.execute("DELETE FROM raw.riot_live_roster WHERE id=%s", (int(path[8:]),))
                     return {"removed": True}
                 raise RosterError(404, "Opération inconnue.")

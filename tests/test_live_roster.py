@@ -85,19 +85,23 @@ def test_add_parameterized_and_idempotent(monkeypatch):
     assert call.args[1] == ("puuid", "Player#EUW")
     identity_call = cur.execute.call_args_list[-2]
     assert "INSERT INTO audit.riot_tracked_players" in identity_call.args[0]
-    assert "false, false, 'live'" in identity_call.args[0]
-    assert "ON CONFLICT (puuid) DO NOTHING" in identity_call.args[0]
+    assert "false, true, 'club'" in identity_call.args[0]
+    assert "ON CONFLICT (puuid) DO UPDATE SET is_tracked=true" in identity_call.args[0]
     assert identity_call.args[1] == ("puuid", "Player#EUW")
 
 
-def test_startup_repairs_existing_roster_without_enabling_ingestion():
+def test_startup_repairs_existing_roster_and_enables_match_collection():
     cur = MagicMock()
     roster.init_roster(cur)
-    repair = cur.execute.call_args.args[0]
+    repair = cur.execute.call_args_list[-2].args[0]
     assert "INSERT INTO audit.riot_tracked_players" in repair
     assert "FROM raw.riot_live_roster" in repair
     assert "false, false, 'live'" in repair
     assert "ON CONFLICT (puuid) DO NOTHING" in repair
+    activation = cur.execute.call_args.args[0]
+    assert "SET is_tracked=true" in activation
+    assert "FROM raw.riot_live_roster" in activation
+    assert "ELSE t.tracking_source END" in activation
 
 
 def test_remove_only_roster(monkeypatch):

@@ -2,6 +2,7 @@ import {useEffect, useState} from 'react';
 import {Activity, AlertTriangle, Clock3, Radio, RefreshCw} from 'lucide-react';
 import {useData, type Row} from './api';
 import LiveRoster from './LiveRoster';
+import {Composition} from './Champion';
 
 const when = (value: Row[string]) => value ? new Date(String(value)).toLocaleString('fr-FR',{dateStyle:'short',timeStyle:'medium'}) : '—';
 const statusLabels:Record<string,string> = {
@@ -34,7 +35,7 @@ export default function LiveGames({revision}:{revision:number}) {
         const stale=Boolean(p.is_stale)||Boolean(heartbeat?.is_stale)||heartbeat?.status==='stopped';
         const active=p.status==='in_game';
         return <article className={`panel live-card ${stale?'stale':''}`} key={`${p.player_name}-${index}`}><div className="panel-head"><div><span className="eyebrow">JOUEUR SUIVI · EUW</span><h2>{String(p.player_name)}</h2></div><span className={`badge ${stale||p.status==='error'?'warning':''}`}>{stale?'Observation périmée':statusLabels[String(p.status)]||'État inconnu'}</span></div>
-          {active&&<><div className="live-match"><span>Partie #{String(p.game_id)}</span><span>Début déclaré : {when(p.game_started_at)}</span></div><div className="live-teams"><div><h3>Côté bleu</h3><p>{String(p.blue_team||'Composition indisponible')}</p></div><div><h3>Côté rouge</h3><p>{String(p.red_team||'Composition indisponible')}</p></div></div></>}
+          {active&&<><div className="live-match"><span>Partie #{String(p.game_id)}</span><span>Début déclaré : {when(p.game_started_at)}</span></div><div className="live-teams"><div><h3>Côté bleu</h3><Composition value={String(p.blue_team||'Composition indisponible')}/></div><div><h3>Côté rouge</h3><Composition value={String(p.red_team||'Composition indisponible')}/></div></div></>}
           {!active&&<p className="live-message">{p.status==='error'?`Échec de l’observation (${String(p.error_code||'erreur inconnue')}). Aucune conclusion sur la partie actuelle.`:p.status==='other_queue'?'Une partie a été détectée hors classé solo ; elle n’est pas affichée dans ce périmètre.':'Riot ne renvoyait pas de partie active lors de cette vérification. Ce n’est pas un statut de connexion du joueur.'}</p>}
           {stale&&<p className="live-message negative">Ne pas considérer cette observation comme l’état actuel du joueur.</p>}
           <div className="live-timing"><span><Clock3 size={12}/> Observation : {when(p.checked_at)}</span><span>Stockage : {when(p.stored_at)}</span><span>Appel API : {String(p.request_ms??'—')} ms · observation → SQL : {String(p.storage_delay_ms??'—')} ms</span>{active&&<span>Première détection : {when(p.first_observed_at)}</span>}</div>
