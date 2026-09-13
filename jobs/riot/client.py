@@ -2,8 +2,11 @@
 
 import hashlib
 import json
+import math
 import os
 import time
+from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
 from pathlib import Path
 from typing import Any
 from urllib.error import HTTPError
@@ -16,9 +19,25 @@ RANKED_SOLO_QUEUE = "RANKED_SOLO_5x5"
 
 
 class RiotApiError(RuntimeError):
-    def __init__(self, message: str, status_code: int | None = None) -> None:
+    def __init__(self, message: str, status_code: int | None = None, retry_after: float | None = None) -> None:
         super().__init__(message)
         self.status_code = status_code
+        self.retry_after = retry_after
+
+
+def retry_after_seconds(value: str | None) -> float:
+    """Handle both Retry-After formats; never retry immediately on a bad header."""
+    try:
+        seconds = float(value)
+        return max(1.0, seconds) if math.isfinite(seconds) else 60.0
+    except (TypeError, ValueError):
+        try:
+            until = parsedate_to_datetime(value)
+            if until.tzinfo is None:
+                until = until.replace(tzinfo=timezone.utc)
+            return max(1.0, (until - datetime.now(timezone.utc)).total_seconds())
+        except (TypeError, ValueError, OverflowError):
+            return 60.0
 
 
 def get_api_key() -> str:
@@ -58,7 +77,7 @@ def fetch_json(url: str, api_key: str | None = None, retries: int = 3) -> Any:
                 return json.loads(response.read().decode(charset))
         except HTTPError as exc:
             if exc.code == 429 and attempt < retries:
-                retry_after = int(exc.headers.get("Retry-After", "2"))
+                retry_after = retry_after_seconds(exc.headers.get("Retry-After"))
                 time.sleep(retry_after)
                 continue
             if 500 <= exc.code < 600 and attempt < retries:
@@ -75,7 +94,8 @@ def fetch_json(url: str, api_key: str | None = None, retries: int = 3) -> Any:
                     status_code=exc.code,
                 ) from exc
             raise RiotApiError(
-                f"Riot API error {exc.code} for {url}: {body}", status_code=exc.code
+                f"Riot API error {exc.code} for {url}: {body}", status_code=exc.code,
+                retry_after=retry_after_seconds(exc.headers.get("Retry-After")) if exc.code == 429 else None,
             ) from exc
 
     raise RiotApiError(f"Riot API request failed after retries: {url}")
@@ -146,11 +166,11 @@ def get_league_entries(
     return fetch_json(url)
 
 
-def get_active_game_by_puuid(puuid: str) -> dict[str, Any] | None:
+def get_active_game_by_puuid(puuid: str, retries: int = 3) -> dict[str, Any] | None:
     """Partie en cours d'un joueur (spectator-v5). None si le joueur n'est pas en partie."""
     url = f"{EUW_PLATFORM_BASE_URL}/lol/spectator/v5/active-games/by-summoner/{puuid}"
     try:
-        return fetch_json(url)
+        return fetch_json(url, retries=retries)
     except RiotApiError as exc:
         if exc.status_code == 404:
             return None
@@ -178,4 +198,3 @@ def write_json(payload: Any, path: Path) -> None:
         json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True),
         encoding="utf-8",
     )
-

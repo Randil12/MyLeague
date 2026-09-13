@@ -70,6 +70,17 @@ def dataset(dataset: str, patch: Annotated[str, Query(min_length=1, max_length=3
     })
 
 
+@app.get("/api/live/status")
+def live_status():
+    return db.query("SELECT * FROM gold.gold_live_service")
+
+
+@app.get("/api/live/players")
+def live_players():
+    # Sanitized view: no raw payload, PUUIDs, spectator tokens or observer credentials.
+    return db.query("SELECT * FROM gold.gold_live_players ORDER BY player_name LIMIT 10")
+
+
 @app.get("/api/team")
 def team(patch: Annotated[str, Query(min_length=1, max_length=32)],
          roster: Annotated[list[str], Query(min_length=5, max_length=5)]):
