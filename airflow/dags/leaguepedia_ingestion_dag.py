@@ -1,42 +1,55 @@
-from __future__ import annotations
-
-import os
+"""Single scheduled Leaguepedia pipeline: history, catalog, then player analytics."""
 from datetime import timedelta
 
 from airflow.sdk import dag, task
 from pendulum import datetime
 
-RAW_DIR = "/opt/airflow/data/bronze/leaguepedia"
-
 
 @dag(
     dag_id="leaguepedia_ingestion",
-    description=(
-        "Référentiels Leaguepedia : tournois, équipes et fiches joueurs. "
-        "Les parties sont collectées par leaguepedia_active_players."
-    ),
-    schedule="0 1,7,13,19 * * *",  # UTC : toutes les 6 h, avant dbt (README.md).
+    description="Leaguepedia unifié : parties de l'année, référentiels et Gold joueurs.",
+    schedule="15 * * * *",
     start_date=datetime(2026, 1, 1, tz="UTC"),
     catchup=False,
     max_active_runs=1,
-    dagrun_timeout=timedelta(minutes=75),
-    default_args={"retries": 2, "retry_delay": timedelta(minutes=5)},
-    tags=["leaguepedia", "esport", "bronze", "elt"],
+    max_active_tasks=1,
+    dagrun_timeout=timedelta(minutes=55),
+    default_args={"retries": 0},
+    tags=["leaguepedia", "players", "bronze", "gold"],
 )
-def leaguepedia_ingestion() -> None:
-    @task(execution_timeout=timedelta(minutes=40))
-    def ingest_leaguepedia() -> dict:
-        from jobs.leaguepedia.ingest import run
+def leaguepedia_ingestion():
+    @task(execution_timeout=timedelta(minutes=25))
+    def collect_current_year():
+        from jobs.leaguepedia.yearly import run
 
         return run(
-            raw_dir=RAW_DIR,
-            year=int(os.getenv("LEAGUEPEDIA_YEAR", "0")) or None,
-            lookback_days=int(os.getenv("LEAGUEPEDIA_LOOKBACK_DAYS", "30")),
-            max_pages=int(os.getenv("LEAGUEPEDIA_MAX_PAGES", "20")),
-            include_scoreboards=False,  # Matches now belong to leaguepedia_active_players.
+            raw_dir="/opt/airflow/data/bronze/leaguepedia",
+            days_per_run=20,
+            budget_seconds=600,
+            revisit_after_seconds=86400,
+            pipeline_name="leaguepedia_ingestion",
         )
 
-    ingest_leaguepedia()
+    @task(execution_timeout=timedelta(minutes=15))
+    def collect_catalog():
+        from jobs.leaguepedia.ingest import run
+
+        result = run(raw_dir="/opt/airflow/data/bronze/leaguepedia", include_scoreboards=False)
+        if result["status"] != "success":
+            raise RuntimeError("Leaguepedia catalog incomplete; inspect audit.pipeline_runs")
+        return result
+
+    @task.bash(execution_timeout=timedelta(minutes=10))
+    def build_player_gold():
+        return (
+            "dbt build --project-dir /opt/airflow/dbt "
+            "--profiles-dir /opt/airflow/dbt/profiles --target dev "
+            "--select tag:leaguepedia_active --indirect-selection cautious "
+            "--target-path /tmp/dbt-leaguepedia-active/target "
+            "--log-path /tmp/dbt-leaguepedia-active/logs --fail-fast"
+        )
+
+    collect_current_year() >> collect_catalog() >> build_player_gold()
 
 
 leaguepedia_ingestion()

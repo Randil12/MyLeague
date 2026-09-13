@@ -7,9 +7,38 @@ Les imports mwrogue sont paresseux pour que les tests unitaires n'exigent pas la
 
 from __future__ import annotations
 
+import logging
 import os
 import time
+from threading import Lock
 from typing import Any
+
+_cargo_lock = Lock()
+_next_cargo_at = 0.0
+_logger = logging.getLogger(__name__)
+
+
+def paced_query(client, **kwargs):
+    """Pace pages, probes and retries in the sole scheduled collector process.
+
+    Other machines or independently launched processes are not covered.
+    """
+    global _next_cargo_at
+    with _cargo_lock:
+        for attempt in range(4):
+            delay = _next_cargo_at - time.monotonic()
+            if delay > 0:
+                time.sleep(delay)
+            try:
+                return client.cargo_client.query(**kwargs)
+            except Exception as exc:
+                if getattr(exc, "code", None) != "ratelimited" or attempt == 3:
+                    raise
+                cooldown = 60 * (2 ** attempt)
+                _logger.warning("Cargo rate limited; waiting %s seconds before retry", cooldown)
+                _next_cargo_at = time.monotonic() + cooldown
+            finally:
+                _next_cargo_at = max(_next_cargo_at, time.monotonic() + 2.0)
 
 
 class LeaguepediaError(RuntimeError):
@@ -65,16 +94,14 @@ def cargo_query(
             kwargs["where"] = where
         if order_by:
             kwargs["order_by"] = order_by
-        rows = client.cargo_client.query(**kwargs)
-        if strict:
-            time.sleep(0.25)
+        rows = paced_query(client, **kwargs)
         results.extend(rows)
         if len(rows) < page_size:
             return results
     if strict:
         kwargs["offset"] = max_pages * page_size
         kwargs["limit"] = 1
-        if client.cargo_client.query(**kwargs):
+        if paced_query(client, **kwargs):
             raise PaginationLimit(f"Window exceeds {max_pages} pages in {tables}")
     return results
 
