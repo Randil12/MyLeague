@@ -1,0 +1,7 @@
+# Dépendances runtime des jobs (installées dans le conteneur Airflow
+# via _PIP_ADDITIONAL_REQUIREMENTS, voir docker-compose.yml)
+boto3>=1.34
+psycopg2-binary>=2.9
+mwrogue>=0.1.5,<0.2
+requests>=2.31
+beautifulsoup4>=4.12

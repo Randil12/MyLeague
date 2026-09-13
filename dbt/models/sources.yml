@@ -1,0 +1,53 @@
+version: 2
+
+sources:
+  - name: raw
+    description: "JSON bruts chargés par l'ELT Riot (étape Load, jobs/riot/load_raw.py)."
+    schema: raw
+    tables:
+      - name: riot_matches
+        description: "Un match ranked solo queue EUW par ligne, payload match-v5 complet en JSONB."
+        columns:
+          - name: match_id
+            tests: [unique, not_null]
+      - name: riot_match_timelines
+        description: "Timeline minute par minute d'un match (analyse par phase de jeu)."
+      - name: riot_live_game_snapshots
+        description: "Parties en cours capturées par le pipeline quasi temps réel (spectator-v5)."
+      - name: riot_champion_masteries
+        description: "Pool de champions des joueurs academy (champion-mastery-v4)."
+      - name: leaguepedia_tournaments
+        description: "Tournois professionnels (API Cargo Leaguepedia)."
+      - name: leaguepedia_teams
+        description: "Équipes professionnelles actives."
+      - name: leaguepedia_players
+        description: "Joueurs professionnels actifs."
+      - name: leaguepedia_scoreboard_games
+        description: "Parties professionnelles : picks, bans, vainqueur, patch."
+        columns:
+          - name: game_id
+            tests: [unique, not_null]
+      - name: leaguepedia_scoreboard_players
+        description: "Stats individuelles par partie pro : joueur, champion, rôle, KDA."
+      - name: riot_patch_notes
+        description: "Notes de patch officielles scrapées (HTML brut en bronze, sections structurées ici)."
+        columns:
+          - name: patch
+            tests: [unique, not_null]
+
+  - name: reference
+    description: "Référentiel Data Dragon chargé par l'ETL (jobs/datadragon/transform_load.py)."
+    schema: reference
+    tables:
+      - name: dim_champion
+      - name: dim_item
+      - name: dim_summoner_spell
+      - name: dim_rune
+
+  - name: audit
+    description: "Tables de suivi des pipelines d'ingestion."
+    schema: audit
+    tables:
+      - name: pipeline_runs
+      - name: riot_match_ingestion
+      - name: riot_tracked_players

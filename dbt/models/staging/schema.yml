@@ -1,0 +1,44 @@
+version: 2
+
+models:
+  - name: stg_riot_matches
+    description: "Métadonnées typées des matchs (patch, durée, file, date)."
+    columns:
+      - name: match_id
+        tests: [unique, not_null]
+      - name: patch
+        tests: [not_null]
+
+  - name: stg_riot_participants
+    description: "Statistiques par joueur et par match (stats, items, keystone)."
+    columns:
+      - name: match_id
+        tests:
+          - not_null
+          # Intégrité référentielle testée à chaque build : équivalent fonctionnel
+          # d'une FOREIGN KEY, sans pénaliser les chargements (choix warehouse).
+          - relationships:
+              to: ref('stg_riot_matches')
+              field: match_id
+      - name: puuid
+        tests: [not_null]
+      - name: champion_name
+        tests: [not_null]
+
+  - name: stg_riot_team_bans
+    description: "Bans de champions par équipe et par match (draft)."
+    columns:
+      - name: match_id
+        tests:
+          - not_null
+          - relationships:
+              to: ref('stg_riot_matches')
+              field: match_id
+      - name: champion_key
+        tests: [not_null]
+
+  - name: stg_lp_scoreboard_games
+    description: "Parties professionnelles Leaguepedia (picks/bans/vainqueur par patch)."
+    columns:
+      - name: game_id
+        tests: [unique, not_null]
