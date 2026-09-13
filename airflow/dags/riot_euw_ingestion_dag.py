@@ -34,12 +34,16 @@ def riot_euw_ingestion() -> None:
     def snapshot_master_plus(run_context: dict[str, Any]) -> dict[str, Any]:
         from jobs.riot.euw_ingest import run_snapshot_stage
 
-        return run_snapshot_stage(
+        result = run_snapshot_stage(
             run_id=run_context["run_id"],
             raw_dir=RAW_DIR,
             # Ex : "DIAMOND:I:1,EMERALD:I:1" pour comparer la méta par niveau de jeu.
             extra_tiers=os.getenv("RIOT_EUW_EXTRA_TIERS", ""),
         )
+        from jobs.riot.player_names import run as resolve_names
+
+        result["player_names"] = resolve_names()
+        return result
 
     @task(execution_timeout=timedelta(minutes=45))
     def ingest_matches(run_context: dict[str, Any], snapshot_summary: dict[str, Any]) -> dict[str, Any]:

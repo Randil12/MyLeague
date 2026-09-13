@@ -82,7 +82,7 @@ def test_coach_to_collector_to_minio_and_api(infrastructure, monkeypatch):
             with conn.cursor() as cur:
                 cur.execute("""SELECT riot_summoner_name, is_tracked, is_currently_master_plus,
                     tracking_source FROM audit.riot_tracked_players WHERE puuid='ci-live-player'""")
-                assert cur.fetchone() == ("CoachPlayer#EUW", False, False, "live")
+                assert cur.fetchone() == ("CoachPlayer#EUW", False, True, "club")
             assert client.get("/api/live/roster").json()["players"][0]["riot_id"] == "CoachPlayer#EUW"
             for _ in range(2):
                 live_service.poll_cycle(conn, get_minio_config(), NoWait(), 60, 5)
@@ -108,7 +108,7 @@ def test_coach_to_collector_to_minio_and_api(infrastructure, monkeypatch):
             live_service.init_schema(conn)  # Idempotent migration, no duplicate identities.
             with conn.cursor() as cur:
                 cur.execute("SELECT is_tracked,tracking_source FROM audit.riot_tracked_players WHERE puuid='ci-repair'")
-                assert cur.fetchone() == (False, "live")
+                assert cur.fetchone() == (True, "club")
     finally:
         server.shutdown()
         server.server_close()

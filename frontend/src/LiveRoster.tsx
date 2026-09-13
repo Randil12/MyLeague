@@ -31,7 +31,7 @@ export default function LiveRoster({revision,onChange}:{revision:number;onChange
       const body=await response.json();
       if(!response.ok)throw new Error(typeof body.detail==='string'?body.detail:'Riot ID invalide.');
       if(method==='POST')setValue('');
-      setNotice(method==='POST'?'Joueur enregistré. Première observation au prochain cycle, sauf pause Riot.':'Joueur retiré du suivi. Les données historiques sont conservées.');
+      setNotice(method==='POST'?'Joueur enregistré. Le direct démarre au prochain cycle ; les statistiques arrivent après la collecte Riot et le build dbt.':'Joueur retiré du suivi. Les données historiques sont conservées.');
       onChange();
     }catch(e){setError(e instanceof Error?e.message:'Service indisponible.');}
     finally{setBusy(false);}
@@ -39,7 +39,7 @@ export default function LiveRoster({revision,onChange}:{revision:number;onChange
   function submit(event:FormEvent){event.preventDefault();void mutate('POST');}
   return <section className="panel live-roster" aria-labelledby="roster-title">
     <div className="panel-head"><div><span className="eyebrow">LISTE PARTAGÉE · STRUCTURE</span><h2 id="roster-title">Mes joueurs à suivre</h2></div><span className="badge">{roster.players.length} / {roster.limit}</span></div>
-    <p>Ajoute le Riot ID complet de tes joueurs EUW. Seuls ces joueurs sont interrogés ; les nouvelles observations apparaissent au prochain cycle. Suivi des parties classées solo uniquement.</p>
+    <p>Ajoute le Riot ID complet de tes joueurs EUW pour le direct, l’entraînement et le coaching. Le suivi de leurs matchs classés solo est enregistré en base ; les statistiques ne sont pas immédiates.</p>
     <form onSubmit={submit} className="roster-form">
       <label htmlFor="roster-riot-id">Riot ID (Pseudo#TAG)<input id="roster-riot-id" value={value} onChange={e=>setValue(e.target.value)} placeholder="Pseudo#EUW" maxLength={64} required disabled={busy} autoComplete="off"/></label>
       <button type="submit" disabled={busy||loading||roster.players.length>=roster.limit||!value.trim()}>{busy?'Traitement…':'Ajouter au suivi'}</button>
@@ -47,6 +47,6 @@ export default function LiveRoster({revision,onChange}:{revision:number;onChange
     {error&&<p role="alert" className="negative">{error}</p>}
     {notice&&<p role="status">{notice}</p>}
     {loading?<p>Chargement de la liste…</p>:!roster.players.length?<p>Aucun joueur configuré. Ajoute ton premier joueur ci-dessus.</p>:<ul className="roster-list">{roster.players.map(p=><li key={p.id}><span>{p.riot_id}</span><button type="button" disabled={busy} onClick={()=>void mutate('DELETE',p.id)} aria-label={`Retirer ${p.riot_id} du suivi`}>Retirer</button></li>)}</ul>}
-    <small>Liste commune à toutes les personnes ayant accès à cette application privée. Retirer un joueur ne supprime pas ses matchs.</small>
+    <small>Liste commune à toutes les personnes ayant accès à cette application privée. Retirer un joueur ne supprime pas ses matchs. Un joueur également suivi par le ladder ou l’Academy peut rester collecté par ces pipelines.</small>
   </section>;
 }

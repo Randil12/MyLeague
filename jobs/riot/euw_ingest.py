@@ -284,8 +284,11 @@ def upsert_tracked_player(conn, entry: dict[str, Any], summoner: dict[str, Any],
                 account_id = EXCLUDED.account_id,
                 profile_icon_id = EXCLUDED.profile_icon_id,
                 summoner_level = EXCLUDED.summoner_level,
-                riot_summoner_name = COALESCE(NULLIF(EXCLUDED.riot_summoner_name, ''),
-                                              audit.riot_tracked_players.riot_summoner_name),
+                riot_summoner_name = CASE
+                    WHEN audit.riot_tracked_players.riot_summoner_name LIKE '%#%'
+                    THEN audit.riot_tracked_players.riot_summoner_name
+                    ELSE COALESCE(NULLIF(EXCLUDED.riot_summoner_name, ''),
+                                  audit.riot_tracked_players.riot_summoner_name) END,
                 tier = EXCLUDED.tier,
                 rank = EXCLUDED.rank,
                 league_points = EXCLUDED.league_points,
@@ -345,7 +348,8 @@ def select_players_for_match_ingestion(conn, max_players: int) -> list[dict[str,
             SELECT puuid, last_match_ingestion_at
             FROM audit.riot_tracked_players
             WHERE region = %s AND is_tracked = TRUE
-            ORDER BY last_match_ingestion_at NULLS FIRST, last_seen_master_plus_at DESC
+            ORDER BY (tracking_source IN ('club','academy')) DESC,
+                     last_match_ingestion_at NULLS FIRST, last_seen_master_plus_at DESC
             LIMIT %s
             """,
             (REGION, max_players),
