@@ -4,6 +4,24 @@
 ]) }}
 
 -- One observed competitive participation; missing statistics remain NULL.
+-- MediaWiki page identity ignores the case of the first character only.
+-- Preserve the rest (including disambiguation), never merge by display name.
+with normalized_players as (
+    select *, upper(left(player_page, 1)) || substring(player_page from 2) as canonical_page
+    from {{ source('raw', 'leaguepedia_scoreboard_players') }}
+), participations as (
+    select distinct on (game_id, canonical_page)
+        game_id, canonical_page as player_page, champion, role, payload, loaded_at
+    from normalized_players
+    order by game_id, canonical_page, loaded_at desc, player_page
+), identities as (
+    select distinct on (upper(left(overview_page, 1)) || substring(overview_page from 2))
+        upper(left(overview_page, 1)) || substring(overview_page from 2) as overview_page,
+        payload
+    from {{ source('raw', 'leaguepedia_players') }}
+    order by upper(left(overview_page, 1)) || substring(overview_page from 2),
+        loaded_at desc, overview_page
+)
 select
     p.game_id,
     p.player_page,
@@ -44,10 +62,10 @@ select
          then nullif(coalesce(g.payload ->> 'Gamelength_Number', g.payload ->> 'Gamelength Number')::numeric, 0)
          end as duration_min,
     greatest(p.loaded_at, g.loaded_at) as loaded_at
-from {{ source('raw', 'leaguepedia_scoreboard_players') }} p
+from participations p
 join {{ source('raw', 'leaguepedia_scoreboard_games') }} g using (game_id)
 left join {{ source('raw', 'leaguepedia_tournaments') }} t
     on t.overview_page = g.payload ->> 'OverviewPage'
-left join {{ source('raw', 'leaguepedia_players') }} identity
+left join identities identity
     on identity.overview_page = p.player_page
 where g.game_date is not null

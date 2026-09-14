@@ -10,6 +10,7 @@ WORKDIR /srv
 COPY backend/requirements.txt ./requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
 COPY backend/ /srv/backend/
+COPY jobs/riot/training.py /srv/jobs/riot/training.py
 COPY --from=frontend /build/dist/ /srv/frontend/dist/
 RUN useradd --create-home --uid 10001 myleague
 USER 10001

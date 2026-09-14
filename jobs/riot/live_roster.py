@@ -32,6 +32,8 @@ def parse_riot_id(value):
 
 
 def init_roster(cur):
+    from jobs.riot.training import init_training
+    init_training(cur)
     cur.execute("""CREATE TABLE IF NOT EXISTS raw.riot_live_roster (
         id bigserial PRIMARY KEY, puuid text UNIQUE NOT NULL,
         riot_id text NOT NULL, created_at timestamptz NOT NULL DEFAULT now()
@@ -101,6 +103,9 @@ def roster_request(method, path, body=None):
         with conn:
             with conn.cursor() as cur:
                 cur.execute("SET LOCAL statement_timeout='5s'")
+                if method == 'POST' and path == '/roster/training':
+                    from jobs.riot.training import request
+                    return request(cur, body)
                 if method == "GET" and path == "/roster":
                     cur.execute("SELECT id, riot_id FROM raw.riot_live_roster ORDER BY created_at, id")
                     return {"players": [{"id": r[0], "riot_id": r[1]} for r in cur.fetchall()],
@@ -141,7 +146,7 @@ class Handler(BaseHTTPRequestHandler):
     def handle_request(self):
         try:
             length = int(self.headers.get("Content-Length", "0"))
-            if not 0 <= length <= 1024:
+            if not 0 <= length <= (16384 if self.path == '/roster/training' else 1024):
                 raise RosterError(413, "Requête trop volumineuse.")
             body = json.loads(self.rfile.read(length)) if length else None
             payload, code = roster_request(self.command, self.path, body), 200
