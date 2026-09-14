@@ -8,6 +8,19 @@ Projet de fin d'études (RNCP 39586 — Ingénieur en science des données).
 
 ## Joueurs compétitifs actifs dans l'année
 
+Entraînement et coaching soloQ utilisent uniquement **Mes joueurs à suivre**,
+via `/api/my-players` et la vue `gold.gold_coach_roster` créée au démarrage de
+`riot-live`. Aucun compte du ladder ni ancien joueur retiré n'est ajouté à cette
+liste automatiquement. Les nouveaux joueurs sans matchs restent sélectionnables.
+La comparaison coaching conserve le choix explicite d'une référence professionnelle.
+
+Après déploiement de cette version, reconstruire `riot-live` et `web`, redémarrer
+Airflow et lancer `leaguepedia_ingestion` : le build Gold ajoute l'indicateur de
+complétude de la collecte des objets/runes. Les journées d'ancienne collecte
+sans ces clés JSON sont reprises en priorité après les jours récents et les jours
+jamais collectés, dans les limites de durée, de quota et de relecture existantes.
+Une valeur vide renvoyée par Cargo ne peut pas être inventée par l'application.
+
 L'espace **Joueurs pro** présente un annuaire paginé (20 joueurs par page),
 ouvert par défaut sur l'année courante. Les filtres région/tournoi/rôle/champion/patch
 s'appliquent à la liste et à la comparaison de 2 à 5 joueurs, avec historique items/runes.

@@ -36,7 +36,8 @@ def test_annual_player_pipeline(infrastructure, monkeypatch, tmp_path):
         return [{"GameId": f"CI-LP-{lower[:10]}", "Link": "CI Pro", "Team": "A",
                  "Role": "Mid", "Champion": "Azir", "DateTime_UTC": lower,
                  "Kills": "4", "Deaths": "2", "Assists": "6", "CS": "200", "Gold": "12000",
-                 "Items":"Item A;Item B", "KeystoneRune":"Conqueror", "VisionScore":"20",
+                 "Items":"Item A;Item B", "Trinket":"", "KeystoneRune":"Conqueror",
+                 "PrimaryTree":"Precision", "SecondaryTree":"Resolve", "Runes":"Conqueror", "VisionScore":"20",
                  "DamageToChampions":"18000"},
                 {"GameId": f"CI-LP-{lower[:10]}", "Link": "CI Missing Stats", "Team": "Unknown",
                  "Role": "Top", "Champion": "Ornn", "DateTime_UTC": lower,
@@ -89,6 +90,8 @@ def test_annual_player_pipeline(infrastructure, monkeypatch, tmp_path):
             history=client.get('/api/pro/history',params=params)
             assert history.status_code==200
             assert any(r['items']=='Item A;Item B' for r in history.json())
+            assert next(r for r in history.json() if r['player_page']=='CI Pro')['equipment_fields_collected'] is True
+            assert next(r for r in history.json() if r['player_page']=='CI Missing Stats')['equipment_fields_collected'] is False
             assert client.get('/api/pro/compare',params={**params,'region':'Korea'}).json()==[]
             assert client.get('/api/pro/players',params={'year':2026,'champion':'Azir'}).json()[0]['player_page']=='CI Pro'
             coach = client.get('/api/pro/coaching', params={'source':'pro','player':'CI Pro','year':2026})

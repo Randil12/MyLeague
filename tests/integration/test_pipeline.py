@@ -82,8 +82,16 @@ def test_coach_to_collector_to_minio_and_api(infrastructure, monkeypatch):
             with conn.cursor() as cur:
                 cur.execute("""SELECT riot_summoner_name, is_tracked, is_currently_master_plus,
                     tracking_source FROM audit.riot_tracked_players WHERE puuid='ci-live-player'""")
-                assert cur.fetchone() == ("CoachPlayer#EUW", False, True, "club")
+                assert cur.fetchone() == ("CoachPlayer#EUW", True, False, "club")
             assert client.get("/api/live/roster").json()["players"][0]["riot_id"] == "CoachPlayer#EUW"
+            mine = client.get('/api/my-players')
+            assert mine.status_code == 200
+            assert [p['puuid'] for p in mine.json()] == ['ci-live-player']
+            assert mine.json()[0]['collected_games'] == 0
+            # Membership, not tracking_source, is authoritative (ladder players too).
+            with conn, conn.cursor() as cur:
+                cur.execute("UPDATE audit.riot_tracked_players SET tracking_source='live' WHERE puuid='ci-live-player'")
+            assert client.get('/api/my-players').json() == mine.json()
             for _ in range(2):
                 live_service.poll_cycle(conn, get_minio_config(), NoWait(), 60, 5)
             response = client.get("/api/live/players")
@@ -97,6 +105,7 @@ def test_coach_to_collector_to_minio_and_api(infrastructure, monkeypatch):
                 assert cur.fetchone()[0] == 1
             assert client.delete(f"/api/live/roster/{player_id}", headers=headers).status_code == 200
             assert client.get("/api/live/players").json() == []
+            assert client.get('/api/my-players').json() == []
             with conn.cursor() as cur:
                 cur.execute("SELECT observed_puuid FROM raw.riot_live_game_snapshots WHERE game_id=987654321")
                 assert cur.fetchone() == ("ci-live-player",)

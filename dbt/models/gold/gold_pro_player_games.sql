@@ -38,6 +38,8 @@ select
     nullif(p.payload ->> 'PrimaryTree', '') as primary_tree,
     nullif(p.payload ->> 'SecondaryTree', '') as secondary_tree,
     nullif(p.payload ->> 'Runes', '') as runes,
+    (p.payload ?& array['Items','Trinket','KeystoneRune','PrimaryTree','SecondaryTree','Runes'])
+        as equipment_fields_collected,
     case when coalesce(g.payload ->> 'Gamelength_Number', g.payload ->> 'Gamelength Number') ~ '^[0-9]+([.][0-9]+)?$'
          then nullif(coalesce(g.payload ->> 'Gamelength_Number', g.payload ->> 'Gamelength Number')::numeric, 0)
          end as duration_min,

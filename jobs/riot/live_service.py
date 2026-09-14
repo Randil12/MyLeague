@@ -45,6 +45,8 @@ def init_schema(conn):
                 status text NOT NULL, interval_seconds integer NOT NULL,
                 selected_players integer NOT NULL, polled integer NOT NULL, errors integer NOT NULL
             );
+            CREATE OR REPLACE VIEW gold.gold_coach_roster AS
+            SELECT puuid, riot_id AS player_name FROM raw.riot_live_roster;
             CREATE OR REPLACE VIEW gold.gold_live_service AS
             SELECT heartbeat_at, next_poll_at, status, interval_seconds, selected_players, polled, errors,
                 now() > greatest(heartbeat_at + interval '3 minutes',
@@ -70,7 +72,7 @@ def init_schema(conn):
             LEFT JOIN audit.riot_live_service s ON s.singleton = true
             WHERE p.selected AND EXISTS (SELECT 1 FROM raw.riot_live_roster r WHERE r.puuid=p.puuid);
         """)
-        cur.execute(sql.SQL("GRANT SELECT ON gold.gold_live_players, gold.gold_live_service TO {}").format(
+        cur.execute(sql.SQL("GRANT SELECT ON gold.gold_live_players, gold.gold_live_service, gold.gold_coach_roster TO {}").format(
             sql.Identifier(os.getenv("DATA_ANALYST_USER", "data_analyst"))))
     conn.commit()
 

@@ -15,6 +15,10 @@ def test_new_readonly_routes_and_roster_validation(monkeypatch):
         assert client.get('/api/champions').status_code == 200
         assert client.get('/api/leaderboard').status_code == 200
         assert query.call_args.args[0] == queries.LEADERBOARD
+        assert client.get('/api/my-players').status_code == 200
+        assert query.call_args.args[0] == queries.MY_PLAYERS
+        assert 'FROM gold.gold_coach_roster' in queries.MY_PLAYERS
+        assert 'tracking_source IN' not in queries.MY_PLAYERS
         assert client.get('/api/team/summary', params={'patch':'16.18','roster':['a']*5}).status_code == 422
         assert client.get('/api/team/summary', params={'patch':'16.18','roster':list('abcde')}).status_code == 200
         assert query.call_args.args[1]['roster'] == list('abcde')

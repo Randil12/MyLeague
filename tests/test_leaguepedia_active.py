@@ -72,3 +72,18 @@ def test_recent_days_refresh_but_fresh_history_is_not_reloaded(collector):
     result = yearly.run(path, revisit_after_seconds=86400)
     assert result["days_processed"] == 2
     assert result["coverage_complete_as_observed"] is True
+
+
+def test_legacy_equipment_days_are_revisited_first(collector, monkeypatch):
+    _, cur, path = collector
+    old = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    cur.fetchall.side_effect = [
+        [(datetime(2026, 1, d).date(), old) for d in range(1, 5)],
+        [(datetime(2026, 1, 2).date(),)],
+    ]
+    fetch = MagicMock(return_value=[{'GameId':'g1'}])
+    monkeypatch.setattr(yearly, 'fetch_complete', fetch)
+    yearly.run(path, days_per_run=3)
+    # Recent days first, then the incomplete historical day within the same cap.
+    assert [call.args[2].day for call in fetch.call_args_list] == [3,3,4,4,2,2]
+    assert any("payload ?&" in call.args[0] for call in cur.execute.call_args_list)

@@ -145,5 +145,6 @@ def history(params: Annotated[dict, Depends(filters)],
         FROM {TABLE} WHERE {WHERE} AND player_page = ANY(CAST(:selected_players AS text[]))
     ) SELECT player_page, player_name, game_date, tournament, competition_region, team,
         champion, role, source_patch, win, kills, deaths, assists, gold, cs,
-        items, trinket, keystone_rune, primary_tree, secondary_tree, runes
+        items, trinket, keystone_rune, primary_tree, secondary_tree, runes,
+        equipment_fields_collected
       FROM recent WHERE n <= 20 ORDER BY game_date DESC, game_id, player_page""", params)
