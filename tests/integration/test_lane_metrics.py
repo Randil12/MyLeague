@@ -5,7 +5,7 @@ from jinja2 import Environment
 
 
 def evaluate(conn, *, duration=1200, timestamp=900300, missing=False, duplicate_role=False, gap=False,
-             damage=15000, cs=150):
+             damage=15000, cs=150, full=False):
     model=Path(__file__).resolve().parents[2]/'dbt/models/gold/gold_player_lane.sql'
     sql=Environment().from_string(model.read_text(encoding='utf-8')).render(
         config=lambda **kw:'', ref=lambda _: 'fixture_facts',
@@ -21,6 +21,12 @@ def evaluate(conn, *, duration=1200, timestamp=900300, missing=False, duplicate_
         {**kill,'timestamp':850000,'assistingParticipantIds':[3]},
         {**kill,'timestamp':860000,'killerId':0}, # execution excluded
         {**kill,'timestamp':900000}] # not strictly before 15 min
+    if full:
+        frames.extend({'timestamp':i*60000,'events':[]} for i in range(16,21))
+        frames[-1]['events']=[
+            {**kill,'timestamp':1100000,'killerId':2,'victimId':1},
+            {**kill,'timestamp':1110000,'victimId':3}, # another opponent: exclude from pair
+        ]
     if gap: frames=frames[:3]+frames[-1:]
     facts=[{'match_id':'m','puuid':'p1','champion_name':'Darius','team_id':100,'team_position':'TOP'},
            {'match_id':'m','puuid':'p2','champion_name':'Aatrox','team_id':200,'team_position':'TOP'}]
@@ -72,3 +78,14 @@ def test_lane_missing_short_and_ambiguous(infrastructure):
     assert evaluate(conn,timestamp=906000)[0]['gold_15'] is None
     assert evaluate(conn,duplicate_role=True)[0]['gd_15'] is None
     assert evaluate(conn,gap=True)[0]['solo_kills_15'] is None
+
+
+def test_directional_solo_kills_require_full_timeline(infrastructure):
+    conn=infrastructure[0]
+    a,b=evaluate(conn,full=True)
+    assert (a['solo_kills_vs_opponent'],a['solo_deaths_vs_opponent'])==(2,1)
+    assert (b['solo_kills_vs_opponent'],b['solo_deaths_vs_opponent'])==(1,2)
+    for options in ({},{'missing':True},{'full':True,'gap':True},{'full':True,'duplicate_role':True}):
+        a=evaluate(conn,**options)[0]
+        assert a['solo_kills_vs_opponent'] is None
+        assert a['solo_deaths_vs_opponent'] is None
