@@ -8,6 +8,11 @@ Projet de fin d'études (RNCP 39586 — Ingénieur en science des données).
 
 ## Joueurs compétitifs actifs dans l'année
 
+L'espace **Comparaison pro** permet de sélectionner deux joueurs, une année et
+des filtres région/tournoi/rôle/champion/patch, avec historique items/runes.
+Gold@15 reste indisponible faute de champ confirmé dans la source collectée.
+Voir [PRO_COMPARISON.md](PRO_COMPARISON.md) pour le déploiement et les limites.
+
 Le DAG fusionné `leaguepedia_ingestion` collecte les parties de l'année UTC
 courante toutes les heures à HH:15, reprend progressivement l'historique et
 construit trois tables Gold de participations, d'activité annuelle et de
