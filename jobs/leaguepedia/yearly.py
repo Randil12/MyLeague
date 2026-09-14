@@ -56,6 +56,14 @@ def run(raw_dir, year=None, max_pages=20, days_per_run=45, budget_seconds=900,
             cur.execute("SELECT day, checked_at FROM audit.leaguepedia_year_days WHERE day >= %s AND day < %s",
                         (start.date(), datetime(target_year + 1, 1, 1).date()))
             checked = dict(cur.fetchall())
+            # Missing keys identify old extraction formats, not legitimate empty
+            # values returned by Cargo. Revisit those days within the usual budget.
+            cur.execute("""SELECT DISTINCT (game_date AT TIME ZONE 'UTC')::date
+                FROM raw.leaguepedia_scoreboard_players
+                WHERE game_date >= %s AND game_date < %s
+                  AND NOT (payload ?& ARRAY['Items','Trinket','KeystoneRune',
+                                           'PrimaryTree','SecondaryTree','Runes'])""", (start, end))
+            incomplete_days = {row[0] for row in cur.fetchall()}
         conn.commit()
         ingest.start_run(conn, run_id, pipeline_name)
         started = True
@@ -68,7 +76,8 @@ def run(raw_dir, year=None, max_pages=20, days_per_run=45, budget_seconds=900,
         older = [p for p in older if p[0].date() not in checked
                  or (now - checked[p[0].date()]).total_seconds() >= revisit_after_seconds]
         older.sort(key=lambda p: (p[0].date() in checked,
-                                 checked.get(p[0].date(), start), p[0]))
+                                 p[0].date() not in incomplete_days,
+                                 checked.get(p[0].date(), start), -p[0].timestamp()))
         for lower, upper in (recent + older)[:days_per_run]:
             if monotonic() >= deadline:
                 break

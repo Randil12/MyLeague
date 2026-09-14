@@ -58,6 +58,11 @@ def players():
     return db.query(queries.PLAYERS)
 
 
+@app.get("/api/my-players")
+def my_players():
+    return db.query(queries.MY_PLAYERS)
+
+
 @app.get("/api/champions")
 def champions():
     return db.query("""SELECT DISTINCT ON (champion_key) champion_key, champion_id, name, version

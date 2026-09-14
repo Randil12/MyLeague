@@ -28,6 +28,18 @@ ORDER BY (t.is_tracked AND t.tracking_source IN ('club','academy')) DESC NULLS L
 LIMIT 5000
 """
 
+MY_PLAYERS = """
+SELECT r.puuid, r.player_name, 'club' AS tracking_source,
+       o.collected_games, o.latest_patch, o.last_game_at
+FROM gold.gold_coach_roster r
+LEFT JOIN LATERAL (
+    SELECT count(*) AS collected_games, max(game_started_at) AS last_game_at,
+           (array_agg(patch ORDER BY game_started_at DESC))[1] AS latest_patch
+    FROM gold.fact_match_participant p WHERE p.puuid=r.puuid
+) o ON true
+ORDER BY r.player_name, r.puuid
+"""
+
 LEADERBOARD = """
 SELECT row_number() OVER (ORDER BY t.league_points DESC, t.wins DESC, t.puuid) AS position,
        coalesce(nullif(nullif(t.riot_summoner_name, ''), t.puuid), n.riot_id, n.display_name,

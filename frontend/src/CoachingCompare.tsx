@@ -6,8 +6,8 @@ function PlayerCard({year,revision}:{year:number;revision:number}) {
   const [source,setSource]=useState('soloq');
   const [player,setPlayer]=useState('');
   const [search,setSearch]=useState('');
-  const directory=useData(source==='pro'?'/api/pro/players':'/api/players',source==='pro'?{year}:{},revision);
-  const players=directory.rows.filter(r=>source==='pro'||['club','academy'].includes(String(r.tracking_source)));
+  const directory=useData(source==='pro'?'/api/pro/players':'/api/my-players',source==='pro'?{year}:{},revision);
+  const players=directory.rows;
   const id=source==='pro'?'player_page':'puuid';
   const valid=players.some(r=>r[id]===player);
   const result=useData('/api/pro/coaching',{source,player,year},revision,valid);
