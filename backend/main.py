@@ -12,11 +12,13 @@ from backend import db, queries
 from backend.live_roster import router as roster_router
 from backend.pro import router as pro_router
 from backend.lane import router as lane_router
+from backend.training import router as training_router
 
 app = FastAPI(title="MyLeague", docs_url=None, redoc_url=None, openapi_url=None)
 app.include_router(roster_router)
 app.include_router(pro_router)
 app.include_router(lane_router)
+app.include_router(training_router)
 logger = logging.getLogger(__name__)
 DIST = Path(__file__).resolve().parents[1] / "frontend" / "dist"
 

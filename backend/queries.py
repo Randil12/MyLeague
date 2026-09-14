@@ -133,17 +133,21 @@ DATASETS = {
     ) SELECT composition, count(*) AS games, avg(win::int) AS winrate
       FROM teams GROUP BY composition HAVING count(*) >= :minimum
       ORDER BY games DESC, winrate DESC, composition LIMIT 100""",
-    "training": """SELECT champion_name, team_position AS role, count(*) AS games,
-        avg(win::int) AS winrate,
+    "training": """SELECT f.champion_name, team_position AS role, count(*) AS games,
+        avg(f.win::int) AS winrate,
         round(sum(kills+assists)::numeric/nullif(sum(deaths),0),2) AS kda,
         round(avg(total_cs*60.0/nullif(game_duration_s,0)),2) AS cs_min,
+        avg(l.gd_15) AS gd_15, count(l.gd_15) AS games_with_gd_15,
+        avg(l.xpd_15) AS xpd_15, count(l.xpd_15) AS games_with_xpd_15,
         CASE WHEN count(*) < 5 THEN 'Échantillon à compléter'
-             WHEN avg(win::int) < 0.5 THEN 'Revoir les défaites en VOD'
+             WHEN avg(f.win::int) < 0.5 THEN 'Revoir les défaites en VOD'
              ELSE 'Consolider le champion' END AS focus,
-        max(game_started_at) AS last_played_at
-        FROM gold.fact_match_participant WHERE patch=:patch AND puuid=:player
-        GROUP BY champion_name, team_position
-        ORDER BY count(*) DESC, champion_name LIMIT 200""",
+        max(f.game_started_at) AS last_played_at
+        FROM gold.fact_match_participant f
+        LEFT JOIN gold.gold_player_lane l ON l.match_id=f.match_id AND l.puuid=f.puuid
+        WHERE f.patch=:patch AND f.puuid=:player
+        GROUP BY f.champion_name, team_position
+        ORDER BY count(*) DESC, f.champion_name LIMIT 200""",
     "player_matchups": PAIRED + """SELECT champion_name, opponent, team_position AS role,
         count(*) AS games, avg(win::int) AS winrate,
         round(avg(gold_delta),0) AS gold_delta, round(avg(cs_delta),2) AS cs_delta

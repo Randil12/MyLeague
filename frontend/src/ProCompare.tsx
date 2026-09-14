@@ -2,6 +2,7 @@ import {useState} from 'react';
 import {useData, type Row, type Result} from './api';
 import {num, percent} from './utils.mjs';
 import Champion from './Champion';
+import {regionOptions, updateProFilters} from './proFilters.mjs';
 import {Equipment,EquipmentList} from './Equipment';
 
 const missing='Non disponible';
@@ -30,18 +31,18 @@ function Comparison({year,revision}:{year:number;revision:number}) {
   function changeFilters(next:typeof filters) {setFilters(next);setIds([]);setPage(0);}
   function toggle(id:string) {setIds(current=>current.includes(id)?current.filter(p=>p!==id):current.length<5?[...current,id]:current);}
   return <>
-    <aside className="note"><div><strong>Comparer à périmètre constant</strong><p>Les filtres s’appliquent aux joueurs sélectionnés. La région est celle du tournoi, pas la nationalité du joueur ni son serveur soloQ. Couverture Leaguepedia observée, possiblement partielle ; anciens alias non consolidés.</p></div></aside>
+    <aside className="note"><div><strong>Comparer à périmètre constant</strong><p>Les filtres s’appliquent aux joueurs sélectionnés. La région est celle du tournoi, pas la nationalité du joueur ni son serveur soloQ. Couverture Leaguepedia observée, possiblement partielle ; variantes de première lettre regroupées, autres anciens alias non consolidés.</p></div></aside>
     <section className="panel"><div className="panel-head"><h2>Joueurs ayant joué en {year}</h2><span className="badge">{players.rows.length} joueurs observés · {ids.length}/5 sélectionnés</span></div>
       <ErrorState result={players}/>
       <div className="filters"><label className="field">Rechercher un pseudo<input value={search} onChange={e=>{setSearch(e.target.value);setPage(0);}} placeholder="Nom du joueur"/></label></div>
       <ErrorState result={options}/>
       <div className="filters">{fields.map(([key,label,column])=>{
-        const values=[...new Set(options.rows.map(r=>String(r[column]||'')).filter(Boolean))].sort();
-        return <label className="field" key={key}>{label}<select value={filters[key]} onChange={e=>changeFilters({...filters,[key]:e.target.value})}><option value="">Tous</option>{values.map(v=><option key={v} value={v}>{key==='tournament'?String(options.rows.find(r=>r.tournament_page===v)?.tournament||v):v}</option>)}</select></label>;
+        const values=regionOptions(options.rows,column,filters.region);
+        return <label className="field" key={key}>{label}<select value={filters[key]} onChange={e=>changeFilters(updateProFilters(filters,key,e.target.value))}><option value="">Tous</option>{values.map(v=><option key={v} value={v}>{key==='tournament'?String(options.rows.find(r=>r.tournament_page===v)?.tournament||v):v}</option>)}</select></label>;
       })}<button className="quiet" onClick={()=>changeFilters({region:'',tournament:'',role:'',champion:'',patch:'',team:''})}>Réinitialiser les filtres</button></div>
       <p>L’équipe est celle représentée lors des matchs, pas nécessairement l’équipe actuelle. Les filtres s’appliquent à la liste et aux statistiques. Les modifier efface la sélection.</p>
       <div className="filters">{ids.map((id,i)=><button className="quiet" key={id} onClick={()=>toggle(id)}>Retirer {labels[i]} ×</button>)}</div>
-      {!players.loading&&!players.error&&<><div className="table-scroll"><table><thead><tr><th>Joueur</th><th>Parties dans le périmètre</th><th>Sélection</th></tr></thead><tbody>{visible.slice(currentPage*20,(currentPage+1)*20).map(p=><tr key={String(p.player_page)}><td>{String(p.player_name)}</td><td>{num(p.games)}</td><td><button className="quiet" aria-pressed={ids.includes(String(p.player_page))} disabled={!ids.includes(String(p.player_page))&&ids.length>=5} onClick={()=>toggle(String(p.player_page))}>{ids.includes(String(p.player_page))?'Retirer':'Comparer'}</button></td></tr>)}</tbody></table></div>
+      {!players.loading&&!players.error&&<><div className="table-scroll"><table><thead><tr><th>Joueur</th><th>Parties dans le périmètre</th><th>Sélection</th></tr></thead><tbody>{visible.slice(currentPage*20,(currentPage+1)*20).map(p=><tr key={String(p.player_page)}><td>{String(p.player_name)}{String(p.player_page).includes(' (')&&<small className="metric-coverage">{String(p.player_page)}</small>}</td><td>{num(p.games)}</td><td><button className="quiet" aria-pressed={ids.includes(String(p.player_page))} disabled={!ids.includes(String(p.player_page))&&ids.length>=5} onClick={()=>toggle(String(p.player_page))}>{ids.includes(String(p.player_page))?'Retirer':'Comparer'}</button></td></tr>)}</tbody></table></div>
       {!visible.length&&<p className="empty">Aucun joueur collecté pour ces filtres.</p>}
       <div className="filters"><button className="quiet" disabled={currentPage===0} onClick={()=>setPage(currentPage-1)}>Précédent</button><span>Page {currentPage+1} / {pages} · {visible.length} résultats</span><button className="quiet" disabled={currentPage+1>=pages} onClick={()=>setPage(currentPage+1)}>Suivant</button></div></>}
     </section>
