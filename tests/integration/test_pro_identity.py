@@ -11,10 +11,12 @@ def test_pro_identity(infrastructure):
     fixtures = """WITH fixture_leaguepedia_scoreboard_players AS (
         SELECT 'game1'::text AS game_id, page AS player_page,
             'Azir'::text AS champion, 'Mid'::text AS role,
-            jsonb_build_object('Kills', kills::text) AS payload,
+            '2026-01-01'::timestamptz AS game_date,
+            jsonb_build_object('Kills', kills::text,'Team','G2 Esports') AS payload,
             '2026-01-01'::timestamptz + age * interval '1 hour' AS loaded_at
         FROM (VALUES ('beishang',1,0),('Beishang',2,1),
-            ('Feng (Chen Chun-Feng)',3,0),('Feng (Jose Ricalday)',4,0)) v(page,kills,age)
+            ('Feng (Chen Chun-Feng)',3,0),('Feng (Jose Ricalday)',4,0),
+            ('BrokenBIade',5,0),('BrokenBlade',6,1)) v(page,kills,age)
     ), fixture_leaguepedia_players AS (
         SELECT 'Beishang'::text AS overview_page, '{"ID":"beishang"}'::jsonb AS payload,
             now() AS loaded_at
@@ -27,4 +29,5 @@ def test_pro_identity(infrastructure):
     with infrastructure[0].cursor() as cur:
         cur.execute(fixtures + sql + ') result')
         rows = dict(cur.fetchall())
-    assert rows == {'Beishang': 2, 'Feng (Chen Chun-Feng)': 3, 'Feng (Jose Ricalday)': 4}
+    assert rows == {'Beishang': 2, 'Feng (Chen Chun-Feng)': 3, 'Feng (Jose Ricalday)': 4,
+                    'BrokenBlade': 6}

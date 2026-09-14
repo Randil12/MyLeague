@@ -7,7 +7,14 @@
 -- MediaWiki page identity ignores the case of the first character only.
 -- Preserve the rest (including disambiguation), never merge by display name.
 with normalized_players as (
-    select *, upper(left(player_page, 1)) || substring(player_page from 2) as canonical_page
+    -- Observed G2 2026 spelling variant (capital I versus lowercase l).
+    -- Scope the correction to this team/year; never fuzzy-merge all player names.
+    select *, case when player_page='BrokenBIade' and payload->>'Team'='G2 Esports'
+                           and game_date >= '2026-01-01'::timestamptz
+                           and game_date < '2027-01-01'::timestamptz
+                      then 'BrokenBlade'
+                  else upper(left(player_page, 1)) || substring(player_page from 2)
+              end as canonical_page
     from {{ source('raw', 'leaguepedia_scoreboard_players') }}
 ), participations as (
     select distinct on (game_id, canonical_page)

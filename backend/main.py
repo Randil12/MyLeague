@@ -47,7 +47,9 @@ async def unavailable(request, exc):
 
 @app.get("/healthz")
 def health():
-    return {"status": "ok", "database_checked": False}
+    return {"status": "ok", "database_checked": False,
+            "app_version": "training-plans-matchups-v2",
+            "features": ["persistent_training_plans", "directional_matchup_solo_kills"]}
 
 
 @app.get("/api/patches")
@@ -129,7 +131,7 @@ def team_summary(patch: Annotated[str, Query(min_length=1, max_length=32)],
 def index():
     if not (DIST / "index.html").exists():
         return JSONResponse(status_code=503, content={"detail": "Construire le frontend avec npm run build."})
-    return FileResponse(DIST / "index.html")
+    return FileResponse(DIST / "index.html", headers={"Cache-Control": "no-store"})
 
 
 app.mount("/assets", StaticFiles(directory=DIST / "assets", check_dir=False), name="assets")

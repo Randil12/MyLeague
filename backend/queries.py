@@ -112,13 +112,20 @@ DATASETS = {
         sum(picks) AS picks
       FROM roles GROUP BY champion_name HAVING count(*) >= 2
       ORDER BY role_count DESC, picks DESC LIMIT 200""",
-    "matchups": PAIRED + """SELECT champion_name, opponent, team_position AS role,
-        count(*) AS games, avg(win::int) AS winrate,
+    "matchups": PAIRED + """SELECT p.champion_name, p.opponent, team_position AS role,
+        count(*) AS games, avg(p.win::int) AS winrate,
         round(avg(gold_delta),0) AS gold_delta, round(avg(cs_delta),2) AS cs_delta
-        FROM paired WHERE (:champion = '' OR champion_name = :champion)
-        AND (:opponent = '' OR opponent = :opponent)
+        ,avg(l.gd_15) AS gd_15, count(l.gd_15) AS games_with_gd_15,
+        sum(l.solo_kills_vs_opponent) AS solo_kills_for,
+        sum(l.solo_deaths_vs_opponent) AS solo_kills_against,
+        count(l.solo_kills_vs_opponent) AS games_with_solo_kills,
+        avg(l.solo_kills_vs_opponent) AS solo_kills_for_mean,
+        avg(l.solo_deaths_vs_opponent) AS solo_kills_against_mean
+        FROM paired p LEFT JOIN gold.gold_player_lane l ON l.match_id=p.match_id AND l.puuid=p.puuid
+        WHERE (:champion = '' OR p.champion_name = :champion)
+        AND (:opponent = '' OR p.opponent = :opponent)
         AND (:role = '' OR team_position = :role)
-        GROUP BY champion_name, opponent, team_position HAVING count(*) >= :minimum
+        GROUP BY p.champion_name, p.opponent, team_position HAVING count(*) >= :minimum
         ORDER BY games DESC, winrate DESC LIMIT 300""",
     "compositions": """WITH teams AS (
         SELECT match_id, team_id,

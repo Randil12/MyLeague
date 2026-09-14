@@ -21,22 +21,31 @@ with participants as (
     select match_id, min(ts)<=1000 and max(ts)>=900000
         and coalesce(max(gap) filter(where ts-coalesce(gap,0)<900000),0)<=90000
         and bool_and(jsonb_typeof(f->'events')='array' and f ? 'events')
-            filter(where ts-coalesce(gap,0)<900000) as events_complete
+            filter(where ts-coalesce(gap,0)<900000) as events_complete,
+        min(ts)<=1000 and coalesce(max(gap),0)<=90000
+            and bool_and(jsonb_typeof(f->'events')='array' and f ? 'events') as full_events_contiguous,
+        max(ts) as last_frame_ms
     from frames group by match_id
 ), observation as (
     select distinct on(match_id) match_id, ts, f
     from frames where abs(ts-900000)<=5000
     order by match_id, abs(ts-900000), ts
-), events as (
+), all_solo_events as (
     select distinct match_id, e
     from frames cross join lateral jsonb_array_elements(
         case when jsonb_typeof(f->'events')='array' then f->'events' else '[]'::jsonb end) e
     where e->>'type'='CHAMPION_KILL'
       and e->>'timestamp' ~ '^[0-9]+$'
-      and (e->>'timestamp')::bigint < 900000
       -- Riot omits assistingParticipantIds when there are no recorded assists.
       and (not e ? 'assistingParticipantIds' or e->'assistingParticipantIds'='[]'::jsonb)
       and e->>'killerId' ~ '^[1-9][0-9]*$'
+      and e->>'victimId' ~ '^[1-9][0-9]*$'
+), events as (
+    select * from all_solo_events where (e->>'timestamp')::bigint < 900000
+), duels as (
+    select match_id, e->>'killerId' as killer, e->>'victimId' as victim,
+        count(*) as kills
+    from all_solo_events group by match_id, e->>'killerId', e->>'victimId'
 ), solo as (
     select match_id, participant_id, sum(kills) as kills, sum(deaths) as deaths
     from (
@@ -46,6 +55,8 @@ with participants as (
     ) counts group by match_id, participant_id
 ), base as (
     select f.*, p.participant_id, p.solo_kills,
+        c.full_events_contiguous and f.game_duration_s>0
+            and c.last_frame_ms>=f.game_duration_s*1000-5000 as full_timeline_available,
         case when f.game_duration_s>=900 then o.ts end as observed_at_ms,
         case when f.game_duration_s>=900 then o.f->'participantFrames'->p.participant_id end as pf,
         case when f.game_duration_s>=900 and c.events_complete and p.participant_id is not null
@@ -74,8 +85,14 @@ select a.match_id, a.puuid, a.champion_name, a.team_position as role, a.patch,
     case when a.game_duration_s>0 and a.total_cs>=0
          then a.total_cs::numeric*60/a.game_duration_s end as cs_min,
     b.champion_name as opponent,
-    a.gold_15-b.gold_15 as gd_15, a.cs_15-b.cs_15 as csd_15, a.xp_15-b.xp_15 as xpd_15
+    a.gold_15-b.gold_15 as gd_15, a.cs_15-b.cs_15 as csd_15, a.xp_15-b.xp_15 as xpd_15,
+    case when a.full_timeline_available and a.participant_id is not null and b.participant_id is not null
+         then coalesce(ab.kills,0) end as solo_kills_vs_opponent,
+    case when a.full_timeline_available and a.participant_id is not null and b.participant_id is not null
+         then coalesce(ba.kills,0) end as solo_deaths_vs_opponent
 from measured a
 left join measured b on b.match_id=a.match_id and b.team_position=a.team_position
     and b.team_id<>a.team_id and a.role_count=1 and b.role_count=1
     and a.team_position in ('TOP','JUNGLE','MIDDLE','BOTTOM','UTILITY')
+left join duels ab on ab.match_id=a.match_id and ab.killer=a.participant_id and ab.victim=b.participant_id
+left join duels ba on ba.match_id=a.match_id and ba.killer=b.participant_id and ba.victim=a.participant_id
