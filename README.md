@@ -178,7 +178,7 @@ secret requis. Activer/déclencher `leaguepedia_ingestion` dans Airflow et inspe
 Mettre les anciens DAGs en pause et attendre la fin des collectes avant déploiement.
 Garder `leaguepedia_active_players` en pause : il est remplacé par ce DAG fusionné.
 
-### Les 7 pipelines planifiés et le backfill manuel
+### Pipelines planifiés et rattrapage historique
 
 | DAG | Rôle | Pattern | Fréquence |
 |---|---|---|---|
@@ -190,7 +190,7 @@ Garder `leaguepedia_active_players` en pause : il est remplacé par ce DAG fusio
 | `riot_academy_tracking` | Maîtrises des joueurs du club | ELT | Deux fois par jour : 04:45 et 16:45 UTC |
 | `dbt_transform` | Construction des tables d'analyse + tests qualité | ELT (T) | Toutes les 3 h : 02:00, 05:00, …, 23:00 UTC |
 | `pipeline_health_monitoring` | Détection des échecs et retards, notification optionnelle | Monitoring | Toutes les 15 min |
-| `riot_historical_backfill` | Rattrapage historique Riot sur 60 jours | ELT | Manuel uniquement |
+| `riot_historical_backfill` | Rattrapage historique Riot sur 60 jours, pagination persistante et timelines | ELT | Chaque jour à 01:35 UTC |
 
 Les dates de départ des DAGs utilisent explicitement UTC, conformément au
 [fonctionnement des fuseaux Airflow](https://airflow.apache.org/docs/apache-airflow/stable/authoring-and-scheduling/timezone.html).

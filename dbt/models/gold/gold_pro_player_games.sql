@@ -1,4 +1,7 @@
-{{ config(tags=['leaguepedia_active']) }}
+{{ config(tags=['leaguepedia_active'], indexes=[
+    {'columns': ['season_year', 'player_page']},
+    {'columns': ['game_id', 'player_page'], 'unique': True}
+]) }}
 
 -- One observed competitive participation; missing statistics remain NULL.
 select

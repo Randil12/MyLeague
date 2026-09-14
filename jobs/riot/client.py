@@ -127,13 +127,14 @@ def get_match_ids_by_puuid(
     end_time: int,
     queue: int = 420,
     count: int = 20,
+    start: int = 0,
 ) -> list[str]:
     query = urlencode(
         {
             "startTime": start_time,
             "endTime": end_time,
             "queue": queue,
-            "start": 0,
+            "start": start,
             "count": min(count, 100),
         }
     )

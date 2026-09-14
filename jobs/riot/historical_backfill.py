@@ -1,10 +1,10 @@
 """Rattrapage historique ciblé des matchs Riot sans rescanner tout le ladder.
 
-Le DAG quotidien ``riot_euw_ingestion`` commence par actualiser les joueurs
+Le DAG régulier ``riot_euw_ingestion`` commence par actualiser les joueurs
 Master+. Pour un rattrapage analytique, cette étape est inutilement coûteuse :
 les joueurs sont déjà présents dans ``audit.riot_tracked_players``. Ce module
-réutilise donc uniquement l'étape d'historique Match-v5, puis enregistre un
-manifest et un run d'audit comme les autres pipelines.
+utilise un curseur historique indépendant, puis enregistre un manifest et un
+run d'audit. Voir HISTORICAL_BACKFILL.md pour les limites et la planification.
 
 Exemple :
     python -m jobs.riot.historical_backfill \
@@ -19,13 +19,13 @@ import json
 from pathlib import Path
 from typing import Any
 
+from jobs.riot.backfill_stage import run_match_ingestion_stage
 from jobs.riot.euw_ingest import (
     DEFAULT_MINIO_PREFIX,
     DEFAULT_RAW_DIR,
     finalize_riot_run,
     make_run_id,
     prepare_riot_run,
-    run_match_ingestion_stage,
 )
 
 
@@ -38,7 +38,7 @@ def run(
     max_matches_per_run: int = 500,
     ingest_timelines: bool = False,
 ) -> dict[str, Any]:
-    """Rattrape les historiques des joueurs les moins récemment traités."""
+    """Rattrape les fenêtres historiques persistées, sans avancer le curseur incrémental."""
     run_id = f"{make_run_id()}_historical"
     prepare_riot_run(run_id)
     match_summary = run_match_ingestion_stage(
