@@ -77,6 +77,7 @@ DATASETS = {
         count(*) AS games, avg(win::int) AS winrate,
         round(avg(gold_delta),0) AS gold_delta, round(avg(cs_delta),2) AS cs_delta
         FROM paired WHERE (:champion = '' OR champion_name = :champion)
+        AND (:opponent = '' OR opponent = :opponent)
         AND (:role = '' OR team_position = :role)
         GROUP BY champion_name, opponent, team_position HAVING count(*) >= :minimum
         ORDER BY games DESC, winrate DESC LIMIT 300""",
