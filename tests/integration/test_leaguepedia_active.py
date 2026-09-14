@@ -80,6 +80,13 @@ def test_annual_player_pipeline(infrastructure, monkeypatch, tmp_path):
             role=client.get('/api/pro/players', params={'year':2026,'role':'Mid'})
             assert role.status_code == 200 and [p['player_page'] for p in role.json()] == ['CI Pro']
             params={'year':2026,'player_a':'CI Pro','player_b':'CI Missing Stats','region':'Europe'}
+            directory=client.get('/api/pro/players',params={'year':2026,'team':'A'})
+            assert directory.status_code==200 and [p['player_page'] for p in directory.json()]==['CI Pro']
+            for endpoint in ['compare','history']:
+                filtered=client.get('/api/pro/'+endpoint,params={**params,'team':'A'})
+                assert filtered.status_code==200 and filtered.json()
+                assert all(p['player_page']=='CI Pro' for p in filtered.json())
+                assert client.get('/api/pro/'+endpoint,params={**params,'team':'Absent'}).json()==[]
             result=client.get('/api/pro/compare',params=params)
             assert result.status_code==200 and len(result.json())==2
             pro=next(r for r in result.json() if r['player_page']=='CI Pro')

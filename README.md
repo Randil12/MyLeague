@@ -8,6 +8,13 @@ Projet de fin d'études (RNCP 39586 — Ingénieur en science des données).
 
 ## Joueurs compétitifs actifs dans l'année
 
+Classement EUW : cinq champions les plus joués par compte, calculés sur les matchs
+soloQ collectés de l'année UTC courante, avec icônes et nombre de parties. Filtre
+« Champion dans le top 5 » et tri par position LP ou volume sur ce champion.
+L'historique reste partiel : aucune nouvelle collecte exhaustive des 1 000 comptes
+n'est lancée par l'ouverture de cette page. Les DAG Riot existants et le build
+Gold enrichissent progressivement ces résultats. Aucun point de maîtrise utilisé.
+
 **Analyse de lane soloQ** : Entraînement et Coaching individuel affichent Gold@15,
 GD@15, CSD@15, XPD@15, solo kills Riot et kills/morts sans assist avant 15 minutes,
 avec couverture et objectif de séance configurable (non enregistré).

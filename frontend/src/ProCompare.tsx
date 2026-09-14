@@ -13,7 +13,7 @@ function Comparison({year,revision}:{year:number;revision:number}) {
   const [ids,setIds]=useState<string[]>([]);
   const [page,setPage]=useState(0);
   const [search,setSearch]=useState('');
-  const [filters,setFilters]=useState({region:'',tournament:'',role:'',champion:'',patch:''});
+  const [filters,setFilters]=useState({region:'',tournament:'',role:'',champion:'',patch:'',team:''});
   const options=useData('/api/pro/options',{year},revision);
   const players=useData('/api/pro/players',{year,...filters},revision);
   const valid=ids.length>=2&&ids.length<=5;
@@ -25,7 +25,7 @@ function Comparison({year,revision}:{year:number;revision:number}) {
   const history=useData('/api/pro/history',params,revision,valid);
   const labels=ids.map(p=>String(players.rows.find(r=>r.player_page===p)?.player_name||p));
   const selected=ids.map(p=>comparison.rows.find(r=>r.player_page===p));
-  const fields:[keyof typeof filters,string,string][]=[['region','Région de compétition','competition_region'],['tournament','Tournoi','tournament_page'],['role','Rôle','role'],['champion','Champion','champion'],['patch','Patch pro (source)','source_patch']];
+  const fields:[keyof typeof filters,string,string][]=[['team','Équipe','team'],['region','Région de compétition','competition_region'],['tournament','Tournoi','tournament_page'],['role','Rôle','role'],['champion','Champion','champion'],['patch','Patch pro (source)','source_patch']];
   const metrics:[string,string,string?,boolean?][]=[['Parties','games'],['Winrate','winrate','games_with_result',true],['KDA (ratio de totaux)','kda','games_with_kda'],['Kills moyens','avg_kills','games_with_kills'],['Morts moyennes','avg_deaths','games_with_deaths'],['Assists moyennes','avg_assists','games_with_assists'],['CS finaux moyens','avg_cs','games_with_cs'],['CS / minute','cs_min','games_with_cs_min'],['Dégâts champions / minute','damage_min','games_with_damage_min'],['Or final moyen','avg_gold','games_with_gold'],['Or / minute','gold_min','games_with_gold_min'],['Dégâts champions moyens','avg_damage','games_with_damage'],['Vision moyenne','avg_vision','games_with_vision'],['Champions différents','champion_pool']];
   function changeFilters(next:typeof filters) {setFilters(next);setIds([]);setPage(0);}
   function toggle(id:string) {setIds(current=>current.includes(id)?current.filter(p=>p!==id):current.length<5?[...current,id]:current);}
@@ -38,8 +38,8 @@ function Comparison({year,revision}:{year:number;revision:number}) {
       <div className="filters">{fields.map(([key,label,column])=>{
         const values=[...new Set(options.rows.map(r=>String(r[column]||'')).filter(Boolean))].sort();
         return <label className="field" key={key}>{label}<select value={filters[key]} onChange={e=>changeFilters({...filters,[key]:e.target.value})}><option value="">Tous</option>{values.map(v=><option key={v} value={v}>{key==='tournament'?String(options.rows.find(r=>r.tournament_page===v)?.tournament||v):v}</option>)}</select></label>;
-      })}<button className="quiet" onClick={()=>changeFilters({region:'',tournament:'',role:'',champion:'',patch:''})}>Réinitialiser les filtres</button></div>
-      <p>Les filtres s’appliquent à la liste et aux statistiques. Les modifier efface la sélection.</p>
+      })}<button className="quiet" onClick={()=>changeFilters({region:'',tournament:'',role:'',champion:'',patch:'',team:''})}>Réinitialiser les filtres</button></div>
+      <p>L’équipe est celle représentée lors des matchs, pas nécessairement l’équipe actuelle. Les filtres s’appliquent à la liste et aux statistiques. Les modifier efface la sélection.</p>
       <div className="filters">{ids.map((id,i)=><button className="quiet" key={id} onClick={()=>toggle(id)}>Retirer {labels[i]} ×</button>)}</div>
       {!players.loading&&!players.error&&<><div className="table-scroll"><table><thead><tr><th>Joueur</th><th>Parties dans le périmètre</th><th>Sélection</th></tr></thead><tbody>{visible.slice(currentPage*20,(currentPage+1)*20).map(p=><tr key={String(p.player_page)}><td>{String(p.player_name)}</td><td>{num(p.games)}</td><td><button className="quiet" aria-pressed={ids.includes(String(p.player_page))} disabled={!ids.includes(String(p.player_page))&&ids.length>=5} onClick={()=>toggle(String(p.player_page))}>{ids.includes(String(p.player_page))?'Retirer':'Comparer'}</button></td></tr>)}</tbody></table></div>
       {!visible.length&&<p className="empty">Aucun joueur collecté pour ces filtres.</p>}

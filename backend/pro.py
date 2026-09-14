@@ -4,10 +4,12 @@ from typing import Annotated, Literal
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from backend import db
+from backend import pro_draft
 
 router = APIRouter(prefix="/api/pro")
 TABLE = "gold.gold_pro_player_games"
 WHERE = """season_year=:year
+    AND (:team='' OR team=:team)
     AND (:region='' OR competition_region=:region)
     AND (:tournament='' OR tournament_page=:tournament)
     AND (:role='' OR role=:role)
@@ -27,16 +29,22 @@ def accounts(year: Annotated[int, Query(ge=2000, le=2100)],
 
 @router.get('/draft/patches')
 def draft_patches():
-    return db.query("""SELECT patch FROM (SELECT DISTINCT patch FROM gold.gold_pro_champion_draft_by_patch) patches
+    return db.query(f"""SELECT patch FROM (SELECT DISTINCT patch FROM {pro_draft.TABLE}) patches
         ORDER BY CASE WHEN patch ~ '^[0-9]+([.][0-9]+)*$'
             THEN string_to_array(patch,'.')::int[] END DESC NULLS LAST, patch DESC""")
 
 
 @router.get('/draft')
-def draft(patch: Annotated[str, Query(min_length=1, max_length=32)]):
-    return db.query("""SELECT champion_name, picks, bans, total_games, winrate,
-        pickrate, banrate, presence FROM gold.gold_pro_champion_draft_by_patch
-        WHERE patch=:patch ORDER BY presence DESC, picks DESC, champion_name""", {'patch': patch})
+def draft(patch: Annotated[str, Query(min_length=1, max_length=32)],
+          region: Annotated[str, Query(max_length=100)] = '',
+          role: Annotated[str, Query(max_length=40)] = ''):
+    return db.query(pro_draft.QUERY, {'patch':patch,'region':region,'role':role})
+
+
+@router.get('/draft/options')
+def draft_options(patch: Annotated[str, Query(min_length=1, max_length=32)]):
+    return db.query(f"""SELECT DISTINCT competition_region,role FROM {pro_draft.TABLE}
+        WHERE patch=:patch ORDER BY competition_region,role""", {'patch':patch})
 
 
 @router.get('/coaching')
@@ -78,8 +86,9 @@ def filters(
     role: Annotated[str, Query(max_length=40)] = "",
     champion: Annotated[str, Query(max_length=100)] = "",
     patch: Annotated[str, Query(max_length=32)] = "",
+    team: Annotated[str, Query(max_length=256)] = "",
 ):
-    return dict(year=year, region=region, tournament=tournament, role=role, champion=champion, patch=patch)
+    return dict(year=year, region=region, tournament=tournament, role=role, champion=champion, patch=patch, team=team)
 
 
 @router.get('/years')
@@ -91,7 +100,7 @@ def years():
 def options(year: Annotated[int, Query(ge=2000, le=2100)]):
     # Exact observed combinations preserve tournament/region relationships.
     return db.query(f"""SELECT DISTINCT competition_region, tournament_page, tournament,
-        role, champion, source_patch FROM {TABLE} WHERE season_year=:year
+        role, champion, source_patch, team FROM {TABLE} WHERE season_year=:year
         ORDER BY competition_region, tournament_page, role, champion, source_patch""", {'year':year})
 
 
