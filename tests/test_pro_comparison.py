@@ -46,6 +46,21 @@ def test_multi_player_selection_and_role_filter(monkeypatch):
         assert query.call_args.args[1]['role'] == 'Top'
 
 
+def test_team_filter_is_bound_on_directory_comparison_and_history(monkeypatch):
+    query = MagicMock(return_value=[])
+    monkeypatch.setattr(db, 'query', query)
+    with TestClient(app) as client:
+        for endpoint in ['players', 'compare', 'history']:
+            params = {'year':2026, 'team':"Team' OR 1=1 --", 'selected_players':['A','B']}
+            assert client.get('/api/pro/'+endpoint, params=params).status_code == 200
+            sql, bound = query.call_args.args
+            assert bound['team'] == params['team'] and params['team'] not in sql
+            assert "(:team='' OR team=:team)" in sql
+            assert client.get('/api/pro/'+endpoint, params={**params,'team':'x'*257}).status_code == 422
+        assert client.get('/api/pro/options',params={'year':2026}).status_code == 200
+        assert 'source_patch, team' in query.call_args.args[0]
+
+
 def test_verified_extra_scoreboard_fields(monkeypatch):
     query=MagicMock(return_value=[])
     monkeypatch.setattr(cargo.time, 'sleep', lambda _:None)
@@ -74,5 +89,19 @@ def test_coaching_sources_are_separate_and_bound(monkeypatch):
         assert 'reported_soloqueue_accounts' in query.call_args.args[0]
         assert client.get('/api/pro/draft/patches').status_code == 200
         assert client.get('/api/pro/draft', params={'patch': '16.18'}).status_code == 200
-        assert 'gold_pro_champion_draft_by_patch' in query.call_args.args[0]
+        assert 'gold_pro_draft_events' in query.call_args.args[0]
         assert client.get('/api/pro/draft').status_code == 422
+
+
+def test_draft_region_role_filters_are_bound(monkeypatch):
+    query=MagicMock(return_value=[])
+    monkeypatch.setattr(db,'query',query)
+    with TestClient(app) as client:
+        params={'patch':'16.18','region':"Europe' --",'role':'Mid'}
+        assert client.get('/api/pro/draft',params=params).status_code==200
+        sql,bound=query.call_args.args
+        assert bound==params and params['region'] not in sql
+        assert "role=:role" in sql and "competition_region=:region" in sql
+        assert client.get('/api/pro/draft',params={**params,'role':'x'*41}).status_code==422
+        assert client.get('/api/pro/draft/options',params={'patch':'16.18'}).status_code==200
+        assert query.call_args.args[1]=={'patch':'16.18'}

@@ -41,18 +41,45 @@ ORDER BY r.player_name, r.puuid
 """
 
 LEADERBOARD = """
-SELECT row_number() OVER (ORDER BY t.league_points DESC, t.wins DESC, t.puuid) AS position,
-       coalesce(nullif(nullif(t.riot_summoner_name, ''), t.puuid), n.riot_id, n.display_name,
-                'Pseudo indisponible') AS player_name,
-       t.tier, t.league_points, t.wins, t.losses,
-       t.wins::numeric / nullif(t.wins+t.losses, 0) AS winrate,
-       t.last_seen_master_plus_at AS collected_at
-FROM audit.riot_tracked_players t
-LEFT JOIN gold.gold_player_names n ON n.puuid=t.puuid
-WHERE t.region='euw1' AND t.tier IN ('CHALLENGER','GRANDMASTER','MASTER') AND t.is_currently_master_plus
-  AND t.queue_type='RANKED_SOLO_5x5'
-ORDER BY t.league_points DESC, t.wins DESC, t.puuid
-LIMIT 1000
+WITH ladder AS (
+ SELECT t.puuid,row_number() OVER (ORDER BY t.league_points DESC,t.wins DESC,t.puuid) AS position,
+        coalesce(nullif(nullif(t.riot_summoner_name,''),t.puuid),n.riot_id,n.display_name,'Pseudo indisponible') AS player_name,
+        t.tier,t.league_points,t.wins,t.losses,t.wins::numeric/nullif(t.wins+t.losses,0) AS winrate,
+        t.last_seen_master_plus_at AS collected_at
+ FROM audit.riot_tracked_players t
+ LEFT JOIN gold.gold_player_names n ON n.puuid=t.puuid
+ WHERE t.region='euw1' AND t.tier IN ('CHALLENGER','GRANDMASTER','MASTER') AND t.is_currently_master_plus
+   AND t.queue_type='RANKED_SOLO_5x5'
+ ORDER BY t.league_points DESC,t.wins DESC,t.puuid LIMIT 1000
+), pool AS (
+ SELECT p.puuid,p.champion_name,count(DISTINCT p.match_id) AS games
+ FROM gold.fact_match_participant p JOIN ladder l ON l.puuid=p.puuid
+ WHERE p.game_started_at >= date_trunc('year',now() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC'
+   AND p.game_started_at <= now() AND nullif(p.champion_name,'') IS NOT NULL
+ GROUP BY p.puuid,p.champion_name
+), ranked AS (
+ SELECT *,row_number() OVER(PARTITION BY puuid ORDER BY games DESC,champion_name) AS n FROM pool
+)
+SELECT l.position,l.player_name,l.tier,l.league_points,l.wins,l.losses,l.winrate,l.collected_at,
+       extract(year FROM now() AT TIME ZONE 'UTC')::int AS champion_year,
+       coalesce(c.collected_games,0) AS champion_sample_games,
+       c.champion_1,c.champion_1_games,c.champion_2,c.champion_2_games,
+       c.champion_3,c.champion_3_games,c.champion_4,c.champion_4_games,c.champion_5,c.champion_5_games
+FROM ladder l LEFT JOIN (
+ SELECT c.puuid,sum(c.games) AS collected_games,
+       max(c.champion_name) FILTER(WHERE c.n=1) AS champion_1,
+       max(c.games) FILTER(WHERE c.n=1) AS champion_1_games,
+       max(c.champion_name) FILTER(WHERE c.n=2) AS champion_2,
+       max(c.games) FILTER(WHERE c.n=2) AS champion_2_games,
+       max(c.champion_name) FILTER(WHERE c.n=3) AS champion_3,
+       max(c.games) FILTER(WHERE c.n=3) AS champion_3_games,
+       max(c.champion_name) FILTER(WHERE c.n=4) AS champion_4,
+       max(c.games) FILTER(WHERE c.n=4) AS champion_4_games,
+       max(c.champion_name) FILTER(WHERE c.n=5) AS champion_5,
+       max(c.games) FILTER(WHERE c.n=5) AS champion_5_games
+ FROM ranked c GROUP BY c.puuid
+) c ON c.puuid=l.puuid
+ORDER BY l.position
 """
 # Discard ambiguous / duplicate role assignments before matching opponents.
 PAIRED = """

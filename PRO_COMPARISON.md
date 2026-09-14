@@ -4,7 +4,11 @@ Espace **Joueurs pro** dans l'application React. Annuaire de 20 joueurs par page
 ouvert sur l'année courante, permettant de comparer de 2 à 5 joueurs distincts.
 Les filtres, notamment le rôle, restreignent aussi la liste des joueurs.
 Recherche de pseudo, filtres communs : région de compétition, tournoi, rôle,
-champion et patch source Leaguepedia. Les matchs soloQ ne sont jamais joints.
+équipe, champion et patch source Leaguepedia. L'équipe correspond à celle représentée
+lors de chaque match, pas forcément au roster actuel. Le filtre équipe restreint
+l'annuaire, la comparaison et les historiques ; le réinitialiser restaure toutes
+les équipes. Changer de filtre réinitialise la sélection des joueurs et la page.
+Les matchs soloQ ne sont jamais joints.
 
 Les valeurs disponibles (winrate, KDA, CS, or, dégâts, vision et pool de champions)
 sont comparées sur les participations filtrées, avec les effectifs renseignés.
@@ -49,6 +53,15 @@ Déclarations de champs utilisées :
 - [ScoreboardGames](https://lol.fandom.com/wiki/Module:CargoDeclare/ScoreboardGames)
 
 ## Déploiement
+
+Draft Pro : filtres patch normalisé, région du tournoi et rôle observé.
+Le modèle `gold_pro_draft_events` (tag `leaguepedia_active`) associe les picks aux
+rôles des scoreboards par partie/équipe/champion. Un rôle absent ou ambigu ne sera
+pas attribué. Les bans n'ont pas de rôle : leur affichage et la présence pick/ban
+sont masqués lorsqu'un rôle est choisi ; la fréquence de pick au rôle est calculée
+sur les parties avec événements de draft collectés pour ce patch et cette région.
+Pour cette évolution, exécuter `leaguepedia_ingestion` jusqu'au build Gold avant
+d'utiliser la nouvelle vue, puis reconstruire `web`.
 
 1. Push/merge selon le workflow existant, puis déploiement de `web` et redémarrage Airflow.
 2. Exécuter `leaguepedia_ingestion` : historique, référentiels, puis build Gold.
