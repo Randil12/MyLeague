@@ -46,11 +46,11 @@ def coaching(source: Literal['pro', 'soloq'],
     # Normalize measures, never merge the competitive and ranked populations.
     if source == 'pro':
         participations = f"""SELECT win, kills, deaths, assists, cs,
-            gold, duration_min, champion FROM {TABLE}
+            gold, damage_to_champions, duration_min, champion FROM {TABLE}
             WHERE player_page=:player AND season_year=:year"""
     else:
         participations = """SELECT win, kills, deaths, assists, total_cs AS cs,
-            gold_earned AS gold, game_duration_s/60.0 AS duration_min,
+            gold_earned AS gold, damage_to_champions, game_duration_s/60.0 AS duration_min,
             champion_name AS champion FROM gold.fact_match_participant
             WHERE puuid=:player
             AND game_started_at >= make_date(:year,1,1)::timestamp AT TIME ZONE 'UTC'
@@ -63,6 +63,8 @@ def coaching(source: Literal['pro', 'soloq'],
             count(*) FILTER (WHERE kills IS NOT NULL AND deaths IS NOT NULL AND assists IS NOT NULL) AS games_with_kda,
             avg(cs/nullif(duration_min,0)) AS cs_min,
             count(cs/nullif(duration_min,0)) AS games_with_cs_min,
+            avg(CASE WHEN duration_min>0 THEN damage_to_champions/duration_min END) AS damage_min,
+            count(CASE WHEN duration_min>0 THEN damage_to_champions/duration_min END) AS games_with_damage_min,
             avg(gold/nullif(duration_min,0)) AS gold_min,
             count(gold/nullif(duration_min,0)) AS games_with_gold_min,
             count(distinct champion) AS champion_pool
@@ -125,6 +127,8 @@ def compare(params: Annotated[dict, Depends(filters)],
         avg(gold) AS avg_gold, count(gold) AS games_with_gold,
         avg(cs/nullif(duration_min,0)) AS cs_min,
         count(cs/nullif(duration_min,0)) AS games_with_cs_min,
+        avg(CASE WHEN duration_min>0 THEN damage_to_champions/duration_min END) AS damage_min,
+        count(CASE WHEN duration_min>0 THEN damage_to_champions/duration_min END) AS games_with_damage_min,
         avg(gold/nullif(duration_min,0)) AS gold_min,
         count(gold/nullif(duration_min,0)) AS games_with_gold_min,
         avg(damage_to_champions) AS avg_damage, count(damage_to_champions) AS games_with_damage,
@@ -146,5 +150,7 @@ def history(params: Annotated[dict, Depends(filters)],
     ) SELECT player_page, player_name, game_date, tournament, competition_region, team,
         champion, role, source_patch, win, kills, deaths, assists, gold, cs,
         items, trinket, keystone_rune, primary_tree, secondary_tree, runes,
-        equipment_fields_collected
+        equipment_fields_collected,
+        CASE WHEN duration_min>0 THEN cs/duration_min END AS cs_min,
+        CASE WHEN duration_min>0 THEN damage_to_champions/duration_min END AS damage_min
       FROM recent WHERE n <= 20 ORDER BY game_date DESC, game_id, player_page""", params)
