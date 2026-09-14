@@ -67,7 +67,9 @@ Une limitation Fandom supplémentaire reste possible.
   CS et or sont des valeurs de fin de partie, pas des valeurs par minute.
 
 Ces tables conservent toutes les années déjà chargées ; filtrer `season_year`.
-Cette livraison prépare les données : elle ne crée pas d'écran de comparaison.
+L'espace **Comparaison pro** exploite ces participations pour comparer deux joueurs
+sur un même périmètre. Voir [PRO_COMPARISON.md](PRO_COMPARISON.md) pour les filtres,
+les champs supplémentaires et la limite explicite de Gold@15.
 
 ## Déploiement et validation
 

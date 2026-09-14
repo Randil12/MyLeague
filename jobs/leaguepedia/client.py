@@ -148,7 +148,8 @@ def fetch_scoreboard_players(
         tables="ScoreboardPlayers",
         fields=(
             "GameId,Link,Champion,Role,Side,Team,Kills,Deaths,Assists,"
-            "CS,Gold,SummonerSpells,DateTime_UTC"
+            "CS,Gold,SummonerSpells,DateTime_UTC,DamageToChampions,VisionScore,"
+            "Items,Trinket,KeystoneRune,PrimaryTree,SecondaryTree,Runes"
         ),
         where=f'DateTime_UTC >= "{since_iso}"' + (
             f' AND DateTime_UTC < "{until_iso}"' if until_iso else ""
@@ -169,7 +170,7 @@ def fetch_scoreboard_games(
         fields=(
             "GameId,MatchId,OverviewPage,Tournament,Team1,Team2,WinTeam,LossTeam,"
             "DateTime_UTC,Patch,Team1Picks,Team2Picks,Team1Bans,Team2Bans,"
-            "Team1Kills,Team2Kills,Gamelength"
+            "Team1Kills,Team2Kills,Gamelength,Gamelength_Number"
         ),
         where=f'DateTime_UTC >= "{since_iso}"' + (
             f' AND DateTime_UTC < "{until_iso}"' if until_iso else ""

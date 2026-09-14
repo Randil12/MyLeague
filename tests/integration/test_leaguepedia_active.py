@@ -3,6 +3,10 @@ import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
 
+from fastapi.testclient import TestClient
+
+from backend import db
+from backend.main import app
 from jobs.leaguepedia import yearly
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -10,6 +14,10 @@ ROOT = Path(__file__).resolve().parents[2]
 
 def test_annual_player_pipeline(infrastructure, monkeypatch, tmp_path):
     conn, s3 = infrastructure
+    with conn, conn.cursor() as cur:
+        cur.execute("""INSERT INTO raw.leaguepedia_tournaments(overview_page,payload)
+            VALUES ('CI/2026','{"Name":"CI Cup","Region":"Europe"}')
+            ON CONFLICT(overview_page) DO UPDATE SET payload=EXCLUDED.payload""")
     now = datetime(2026, 1, 2, 12, tzinfo=timezone.utc)
     monkeypatch.setattr(yearly.ingest, "utc_now", lambda: now)
     monkeypatch.setattr(yearly.ingest, "get_client", lambda: object())
@@ -18,12 +26,15 @@ def test_annual_player_pipeline(infrastructure, monkeypatch, tmp_path):
         day = lower[:10]
         return [{"GameId": f"CI-LP-{day}", "Patch": "26.1", "DateTime_UTC": lower,
                  "Tournament": "CI Cup", "OverviewPage": "CI/2026", "Team1": "A",
-                 "Team2": "B", "WinTeam": "A" if day.endswith("01") else "B"}]
+                 "Team2": "B", "Gamelength_Number":"30",
+                 "WinTeam": "A" if day.endswith("01") else "B"}]
 
     def players(client, lower, **kwargs):
         return [{"GameId": f"CI-LP-{lower[:10]}", "Link": "CI Pro", "Team": "A",
                  "Role": "Mid", "Champion": "Azir", "DateTime_UTC": lower,
-                 "Kills": "4", "Deaths": "2", "Assists": "6", "CS": "200", "Gold": "12000"},
+                 "Kills": "4", "Deaths": "2", "Assists": "6", "CS": "200", "Gold": "12000",
+                 "Items":"Item A;Item B", "KeystoneRune":"Conqueror", "VisionScore":"20",
+                 "DamageToChampions":"18000"},
                 {"GameId": f"CI-LP-{lower[:10]}", "Link": "CI Missing Stats", "Team": "Unknown",
                  "Role": "Top", "Champion": "Ornn", "DateTime_UTC": lower,
                  "Kills": "", "Deaths": "N/A"}]
@@ -53,3 +64,22 @@ def test_annual_player_pipeline(infrastructure, monkeypatch, tmp_path):
         cur.execute("""SELECT games_with_result, winrate, avg_deaths, kda
                        FROM gold.gold_pro_player_comparison WHERE player_page='CI Missing Stats'""")
         assert cur.fetchone() == (0, None, None, None)
+    db.engine.cache_clear()
+    try:
+        with TestClient(app) as client:
+            params={'year':2026,'player_a':'CI Pro','player_b':'CI Missing Stats','region':'Europe'}
+            result=client.get('/api/pro/compare',params=params)
+            assert result.status_code==200 and len(result.json())==2
+            pro=next(r for r in result.json() if r['player_page']=='CI Pro')
+            assert pro['games']==2 and float(pro['avg_gold'])==12000
+            assert float(pro['gold_min'])==400 and pro['games_with_gold_min']==2
+            empty=next(r for r in result.json() if r['player_page']=='CI Missing Stats')
+            assert empty['avg_gold'] is None and empty['games_with_gold']==0
+            history=client.get('/api/pro/history',params=params)
+            assert history.status_code==200
+            assert any(r['items']=='Item A;Item B' for r in history.json())
+            assert client.get('/api/pro/compare',params={**params,'region':'Korea'}).json()==[]
+            assert client.get('/api/pro/players',params={'year':2026,'champion':'Azir'}).json()[0]['player_page']=='CI Pro'
+    finally:
+        db.engine().dispose()
+        db.engine.cache_clear()
