@@ -5,6 +5,7 @@ select
     p.game_id,
     p.player_page,
     coalesce(nullif(identity.payload ->> 'ID', ''), p.player_page) as player_name,
+    nullif(identity.payload ->> 'SoloqueueIds', '') as reported_soloqueue_accounts,
     extract(year from g.game_date at time zone 'UTC')::int as season_year,
     g.game_date,
     g.patch as source_patch,

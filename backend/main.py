@@ -27,7 +27,7 @@ async def headers(request, call_next):
     response.headers["Referrer-Policy"] = "no-referrer"
     response.headers["Content-Security-Policy"] = (
         "default-src 'self'; script-src 'self'; style-src 'self'; "
-        "img-src 'self' data: https://ddragon.leagueoflegends.com; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'"
+        "img-src 'self' data: https://ddragon.leagueoflegends.com; connect-src 'self' https://ddragon.leagueoflegends.com; frame-ancestors 'none'; base-uri 'none'"
     )
     if request.url.path.startswith("/api/"):
         response.headers["Cache-Control"] = "no-store"

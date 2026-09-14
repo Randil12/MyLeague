@@ -1,10 +1,27 @@
-import {createContext, useContext, useState, type ReactNode} from 'react';
+import {createContext, useContext, useEffect, useState, type ReactNode} from 'react';
 import {useData, type Row} from './api';
 
 const Champions = createContext<Row[]>([]);
 export function ChampionProvider({children}:{children:ReactNode}) {
   const result=useData('/api/champions',{},0);
-  return <Champions.Provider value={result.rows}>{children}</Champions.Provider>;
+  const [catalog,setCatalog]=useState<Row[]>([]);
+  useEffect(()=>{
+    const controller=new AbortController();
+    const timer=setTimeout(()=>controller.abort(),15000);
+    async function load() {
+      const versions=await fetch('https://ddragon.leagueoflegends.com/api/versions.json',{signal:controller.signal});
+      if(!versions.ok)throw new Error('Catalogue indisponible');
+      const version=(await versions.json())[0];
+      if(typeof version!=='string'||!/^\d+\.\d+\.\d+$/.test(version))return;
+      const response=await fetch(`https://ddragon.leagueoflegends.com/cdn/${version}/data/en_US/champion.json`,{signal:controller.signal});
+      if(!response.ok)throw new Error('Catalogue indisponible');
+      const body=await response.json();
+      setCatalog(Object.values(body.data as Record<string,{id:string;key:string;name:string}>).map(c=>({champion_id:c.id,champion_key:c.key,name:c.name,version})));
+    }
+    void load().catch(()=>{}).finally(()=>clearTimeout(timer));
+    return ()=>{controller.abort();clearTimeout(timer);};
+  },[]);
+  return <Champions.Provider value={[...catalog,...result.rows]}>{children}</Champions.Provider>;
 }
 
 export default function Champion({name}:{name:string}) {

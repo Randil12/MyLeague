@@ -15,6 +15,9 @@ ROOT = Path(__file__).resolve().parents[2]
 def test_annual_player_pipeline(infrastructure, monkeypatch, tmp_path):
     conn, s3 = infrastructure
     with conn, conn.cursor() as cur:
+        cur.execute("""INSERT INTO raw.leaguepedia_players(overview_page,payload)
+            VALUES ('CI Pro','{"ID":"CI Pro","SoloqueueIds":"Example#EUW"}')
+            ON CONFLICT(overview_page) DO UPDATE SET payload=EXCLUDED.payload""")
         cur.execute("""INSERT INTO raw.leaguepedia_tournaments(overview_page,payload)
             VALUES ('CI/2026','{"Name":"CI Cup","Region":"Europe"}')
             ON CONFLICT(overview_page) DO UPDATE SET payload=EXCLUDED.payload""")
@@ -80,6 +83,19 @@ def test_annual_player_pipeline(infrastructure, monkeypatch, tmp_path):
             assert any(r['items']=='Item A;Item B' for r in history.json())
             assert client.get('/api/pro/compare',params={**params,'region':'Korea'}).json()==[]
             assert client.get('/api/pro/players',params={'year':2026,'champion':'Azir'}).json()[0]['player_page']=='CI Pro'
+            coach = client.get('/api/pro/coaching', params={'source':'pro','player':'CI Pro','year':2026})
+            assert coach.status_code == 200
+            assert coach.json()[0]['games'] == 2
+            assert float(coach.json()[0]['gold_min']) == 400
+            accounts = client.get('/api/pro/accounts', params={'player':'CI Pro','year':2026})
+            assert accounts.status_code == 200
+            assert accounts.json()[0]['reported_accounts'] == 'Example#EUW'
+            solo = client.get('/api/pro/coaching', params={'source':'soloq','player':'ci-p1','year':2026})
+            assert solo.status_code == 200
+            assert solo.json()[0]['games'] == 2
+            absent = client.get('/api/pro/coaching', params={'source':'soloq','player':'ci-p1','year':2001})
+            assert absent.json()[0]['games'] == 0
+            assert absent.json()[0]['gold_min'] is None
     finally:
         db.engine().dispose()
         db.engine.cache_clear()
