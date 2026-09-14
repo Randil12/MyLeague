@@ -74,15 +74,18 @@ def leaderboard():
 def dataset(dataset: str, patch: Annotated[str, Query(min_length=1, max_length=32)],
             player: Annotated[str, Query(max_length=256)] = "",
             champion: Annotated[str, Query(max_length=100)] = "",
+            opponent: Annotated[str, Query(max_length=100)] = "",
             role: Literal["", "TOP", "JUNGLE", "MIDDLE", "BOTTOM", "UTILITY"] = "",
             minimum: Annotated[int, Query(ge=1, le=10000)] = 10):
     if dataset not in queries.DATASETS:
         raise HTTPException(404, "Analyse inconnue")
+    if dataset == 'matchups' and opponent and champion == opponent:
+        raise HTTPException(422, "Choisis deux champions distincts")
     if dataset in {"training", "player_summary", "player_matchups", "history", "progress", "durations"}:
         if not player:
             raise HTTPException(422, "Choisis un joueur")
     return db.query(queries.DATASETS[dataset], {
-        "patch": patch, "player": player, "champion": champion, "role": role, "minimum": minimum,
+        "patch": patch, "player": player, "champion": champion, "opponent": opponent, "role": role, "minimum": minimum,
     })
 
 

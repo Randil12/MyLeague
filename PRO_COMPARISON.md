@@ -1,7 +1,8 @@
 # Comparaison de joueurs de compétition
 
-Nouvel espace **Comparaison pro** dans l'application React. Choisir une année
-présente dans les données, puis deux joueurs distincts ayant joué cette année.
+Espace **Joueurs pro** dans l'application React. Annuaire de 20 joueurs par page,
+ouvert sur l'année courante, permettant de comparer de 2 à 5 joueurs distincts.
+Les filtres, notamment le rôle, restreignent aussi la liste des joueurs.
 Recherche de pseudo, filtres communs : région de compétition, tournoi, rôle,
 champion et patch source Leaguepedia. Les matchs soloQ ne sont jamais joints.
 
@@ -25,9 +26,10 @@ Le collecteur demande maintenant `Items`, `Trinket`, `KeystoneRune`, `PrimaryTre
 est récupérée côté parties. JSON bronze et raw conservés ; les nouveaux champs
 typés sont ajoutés à `gold.gold_pro_player_games` par dbt.
 
-L'historique affiche les 20 dernières participations de chacun des deux joueurs,
+L'historique affiche les 20 dernières participations de chaque joueur sélectionné,
 avec champion, équipe, compétition, résultat et détails items/runes quand présents.
-Les runes sont affichées en texte source : leur format n'est pas garanti stable.
+Les icônes des objets et runes sont affichées lorsque leur correspondance est connue,
+sinon le texte source est conservé.
 Les objets correspondent au scoreboard final, pas à un ordre d'achat.
 
 **Gold@15 et différence d'or à 15 minutes restent indisponibles** : aucun champ
@@ -43,7 +45,7 @@ Déclarations de champs utilisées :
 
 1. Push/merge selon le workflow existant, puis déploiement de `web` et redémarrage Airflow.
 2. Exécuter `leaguepedia_ingestion` : historique, référentiels, puis build Gold.
-3. Actualiser le site et ouvrir **Comparaison pro**.
+3. Actualiser le site et ouvrir **Joueurs pro**.
 
 Le nouveau backend nécessite le nouveau build Gold : tant qu'il n'a pas abouti,
 la page peut afficher une erreur de données indisponibles. Pour reconstruire depuis

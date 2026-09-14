@@ -1,4 +1,4 @@
-"""Resolve Challenger Riot IDs once a week; never query Riot from page rendering."""
+"""Resolve top 1000 Riot IDs progressively; never query Riot from page rendering."""
 import time
 from urllib.parse import quote
 
@@ -13,9 +13,13 @@ def run():
     try:
         with conn, conn.cursor() as cur:
             cur.execute("ALTER TABLE audit.riot_tracked_players ADD COLUMN IF NOT EXISTS name_checked_at timestamptz")
-            cur.execute("""SELECT puuid FROM audit.riot_tracked_players
-                WHERE region='euw1' AND tier='CHALLENGER' AND is_currently_master_plus
-                  AND (name_checked_at IS NULL OR name_checked_at < now()-interval '7 days')
+            cur.execute("""WITH leaders AS (
+                SELECT puuid,name_checked_at,league_points FROM audit.riot_tracked_players
+                WHERE region='euw1' AND tier IN ('CHALLENGER','GRANDMASTER','MASTER') AND is_currently_master_plus
+                  AND queue_type='RANKED_SOLO_5x5'
+                ORDER BY league_points DESC,wins DESC,puuid LIMIT 1000
+            ) SELECT puuid FROM leaders
+                WHERE (name_checked_at IS NULL OR name_checked_at < now()-interval '7 days')
                 ORDER BY name_checked_at NULLS FIRST, league_points DESC LIMIT 300""")
             players = [row[0] for row in cur.fetchall()]
         for puuid in players:

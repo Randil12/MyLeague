@@ -32,15 +32,15 @@ LEADERBOARD = """
 SELECT row_number() OVER (ORDER BY t.league_points DESC, t.wins DESC, t.puuid) AS position,
        coalesce(nullif(nullif(t.riot_summoner_name, ''), t.puuid), n.riot_id, n.display_name,
                 'Pseudo indisponible') AS player_name,
-       t.league_points, t.wins, t.losses,
+       t.tier, t.league_points, t.wins, t.losses,
        t.wins::numeric / nullif(t.wins+t.losses, 0) AS winrate,
        t.last_seen_master_plus_at AS collected_at
 FROM audit.riot_tracked_players t
 LEFT JOIN gold.gold_player_names n ON n.puuid=t.puuid
-WHERE t.region='euw1' AND t.tier='CHALLENGER' AND t.is_currently_master_plus
+WHERE t.region='euw1' AND t.tier IN ('CHALLENGER','GRANDMASTER','MASTER') AND t.is_currently_master_plus
   AND t.queue_type='RANKED_SOLO_5x5'
 ORDER BY t.league_points DESC, t.wins DESC, t.puuid
-LIMIT 300
+LIMIT 1000
 """
 # Discard ambiguous / duplicate role assignments before matching opponents.
 PAIRED = """
@@ -77,6 +77,7 @@ DATASETS = {
         count(*) AS games, avg(win::int) AS winrate,
         round(avg(gold_delta),0) AS gold_delta, round(avg(cs_delta),2) AS cs_delta
         FROM paired WHERE (:champion = '' OR champion_name = :champion)
+        AND (:opponent = '' OR opponent = :opponent)
         AND (:role = '' OR team_position = :role)
         GROUP BY champion_name, opponent, team_position HAVING count(*) >= :minimum
         ORDER BY games DESC, winrate DESC LIMIT 300""",
@@ -92,7 +93,7 @@ DATASETS = {
         HAVING count(*) = 5 AND count(DISTINCT team_position) = 5 AND count(DISTINCT puuid) = 5
     ) SELECT composition, count(*) AS games, avg(win::int) AS winrate
       FROM teams GROUP BY composition HAVING count(*) >= :minimum
-      ORDER BY winrate DESC, games DESC LIMIT 100""",
+      ORDER BY games DESC, winrate DESC, composition LIMIT 100""",
     "training": """SELECT champion_name, team_position AS role, count(*) AS games,
         avg(win::int) AS winrate,
         round(sum(kills+assists)::numeric/nullif(sum(deaths),0),2) AS kda,
@@ -135,10 +136,10 @@ DATASETS = {
         winrate, winrate_delta, trend, official_change
         FROM gold.gold_champion_patch_evolution WHERE patch = :patch
         ORDER BY abs(winrate_delta) DESC NULLS LAST LIMIT 200""",
-    "items": """SELECT item_name, times_built, winrate FROM gold.gold_champion_items_by_patch
+    "items": """SELECT item_key, item_name, times_built, winrate FROM gold.gold_champion_items_by_patch
         WHERE patch = :patch AND champion_name = :champion AND times_built >= :minimum
         ORDER BY times_built DESC LIMIT 20""",
-    "runes": """SELECT keystone_name, style_name, picks, winrate
+    "runes": """SELECT keystone_id, keystone_name, style_name, picks, winrate
         FROM gold.gold_champion_keystones_by_patch WHERE patch = :patch AND champion_name = :champion
         ORDER BY picks DESC LIMIT 20""",
 }

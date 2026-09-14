@@ -27,8 +27,9 @@ def accounts(year: Annotated[int, Query(ge=2000, le=2100)],
 
 @router.get('/draft/patches')
 def draft_patches():
-    return db.query("""SELECT DISTINCT patch FROM gold.gold_pro_champion_draft_by_patch
-        ORDER BY string_to_array(patch,'.')::int[] DESC""")
+    return db.query("""SELECT patch FROM (SELECT DISTINCT patch FROM gold.gold_pro_champion_draft_by_patch) patches
+        ORDER BY CASE WHEN patch ~ '^[0-9]+([.][0-9]+)*$'
+            THEN string_to_array(patch,'.')::int[] END DESC NULLS LAST, patch DESC""")
 
 
 @router.get('/draft')
@@ -98,17 +99,19 @@ def players(params: Annotated[dict, Depends(filters)]):
         FROM {TABLE} WHERE {WHERE} GROUP BY player_page ORDER BY games DESC, player_page""", params)
 
 
-def selection(params, player_a, player_b):
-    if player_a == player_b:
-        raise HTTPException(422, "Choisis deux joueurs distincts.")
-    return {**params, 'player_a':player_a, 'player_b':player_b}
+def selection(params, player_a, player_b, selected_players=None):
+    players = selected_players if selected_players is not None else [player_a, player_b]
+    if not 2 <= len(players) <= 5 or len(set(players)) != len(players) or any(not p or len(p)>256 for p in players):
+        raise HTTPException(422, "Choisis entre deux et cinq joueurs distincts.")
+    return {**params, 'selected_players':players}
 
 
 @router.get('/compare')
 def compare(params: Annotated[dict, Depends(filters)],
-            player_a: Annotated[str, Query(min_length=1, max_length=256)],
-            player_b: Annotated[str, Query(min_length=1, max_length=256)]):
-    params = selection(params, player_a, player_b)
+            player_a: Annotated[str, Query(max_length=256)] = '',
+            player_b: Annotated[str, Query(max_length=256)] = '',
+            selected_players: Annotated[list[str] | None, Query(min_length=2, max_length=5)] = None):
+    params = selection(params, player_a, player_b, selected_players)
     return db.query(f"""SELECT player_page, max(player_name) AS player_name,
         count(*) AS games, count(win) AS games_with_result,
         count(*) FILTER (WHERE win) AS wins, avg(win::int) AS winrate,
@@ -127,18 +130,19 @@ def compare(params: Annotated[dict, Depends(filters)],
         avg(damage_to_champions) AS avg_damage, count(damage_to_champions) AS games_with_damage,
         avg(vision_score) AS avg_vision, count(vision_score) AS games_with_vision,
         count(distinct champion) AS champion_pool, max(game_date) AS last_game_at
-        FROM {TABLE} WHERE {WHERE} AND player_page IN (:player_a,:player_b)
+        FROM {TABLE} WHERE {WHERE} AND player_page = ANY(CAST(:selected_players AS text[]))
         GROUP BY player_page ORDER BY player_page""", params)
 
 
 @router.get('/history')
 def history(params: Annotated[dict, Depends(filters)],
-            player_a: Annotated[str, Query(min_length=1, max_length=256)],
-            player_b: Annotated[str, Query(min_length=1, max_length=256)]):
-    params = selection(params, player_a, player_b)
+            player_a: Annotated[str, Query(max_length=256)] = '',
+            player_b: Annotated[str, Query(max_length=256)] = '',
+            selected_players: Annotated[list[str] | None, Query(min_length=2, max_length=5)] = None):
+    params = selection(params, player_a, player_b, selected_players)
     return db.query(f"""WITH recent AS (
         SELECT *, row_number() OVER (PARTITION BY player_page ORDER BY game_date DESC, game_id) AS n
-        FROM {TABLE} WHERE {WHERE} AND player_page IN (:player_a,:player_b)
+        FROM {TABLE} WHERE {WHERE} AND player_page = ANY(CAST(:selected_players AS text[]))
     ) SELECT player_page, player_name, game_date, tournament, competition_region, team,
         champion, role, source_patch, win, kills, deaths, assists, gold, cs,
         items, trinket, keystone_rune, primary_tree, secondary_tree, runes
