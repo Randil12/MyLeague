@@ -1,5 +1,5 @@
 -- Recommandations de draft explicables : combinaison de la priorité ladder,
--- de la performance, de la méta professionnelle et de la robustesse de l'échantillon.
+-- de la performance et de la robustesse de l'échantillon soloQ uniquement.
 
 with ladder as (
 
@@ -50,9 +50,8 @@ scored as (
         *,
         round(
             100 * (
-                0.40 * coalesce(presence, 0)
+                0.60 * coalesce(presence, 0)
                 + 0.20 * greatest(coalesce(winrate, 0.5) - 0.45, 0)
-                + 0.20 * coalesce(pro_presence, presence, 0)
                 + 0.20 * sample_factor
             ),
             1

@@ -1,5 +1,5 @@
-"""Competitive comparisons only: no join to solo queue, no browser-provided SQL."""
-from typing import Annotated
+"""Pro analytics and source-separated coaching; no browser-provided SQL."""
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
@@ -13,6 +13,59 @@ WHERE = """season_year=:year
     AND (:role='' OR role=:role)
     AND (:champion='' OR champion=:champion)
     AND (:patch='' OR source_patch=:patch)"""
+
+
+@router.get('/accounts')
+def accounts(year: Annotated[int, Query(ge=2000, le=2100)],
+             player: Annotated[str, Query(min_length=1, max_length=256)]):
+    # Cargo text is an attribution by the wiki, not verified Riot account ownership.
+    return db.query(f"""SELECT player_page, max(player_name) AS player_name,
+        max(reported_soloqueue_accounts) AS reported_accounts
+        FROM {TABLE} WHERE season_year=:year AND player_page=:player
+        GROUP BY player_page""", {'year': year, 'player': player})
+
+
+@router.get('/draft/patches')
+def draft_patches():
+    return db.query("""SELECT DISTINCT patch FROM gold.gold_pro_champion_draft_by_patch
+        ORDER BY string_to_array(patch,'.')::int[] DESC""")
+
+
+@router.get('/draft')
+def draft(patch: Annotated[str, Query(min_length=1, max_length=32)]):
+    return db.query("""SELECT champion_name, picks, bans, total_games, winrate,
+        pickrate, banrate, presence FROM gold.gold_pro_champion_draft_by_patch
+        WHERE patch=:patch ORDER BY presence DESC, picks DESC, champion_name""", {'patch': patch})
+
+
+@router.get('/coaching')
+def coaching(source: Literal['pro', 'soloq'],
+             player: Annotated[str, Query(min_length=1, max_length=256)],
+             year: Annotated[int, Query(ge=2000, le=2100)]):
+    # Normalize measures, never merge the competitive and ranked populations.
+    if source == 'pro':
+        participations = f"""SELECT win, kills, deaths, assists, cs,
+            gold, duration_min, champion FROM {TABLE}
+            WHERE player_page=:player AND season_year=:year"""
+    else:
+        participations = """SELECT win, kills, deaths, assists, total_cs AS cs,
+            gold_earned AS gold, game_duration_s/60.0 AS duration_min,
+            champion_name AS champion FROM gold.fact_match_participant
+            WHERE puuid=:player
+            AND game_started_at >= make_date(:year,1,1)::timestamp AT TIME ZONE 'UTC'
+            AND game_started_at < make_date(:year+1,1,1)::timestamp AT TIME ZONE 'UTC'"""
+    return db.query(f"""WITH games AS ({participations})
+        SELECT count(*) AS games, avg(win::int) AS winrate,
+        count(win) AS games_with_result,
+        (sum(kills+assists) FILTER (WHERE deaths IS NOT NULL))::numeric
+            / nullif(sum(deaths) FILTER (WHERE kills IS NOT NULL AND assists IS NOT NULL),0) AS kda,
+            count(*) FILTER (WHERE kills IS NOT NULL AND deaths IS NOT NULL AND assists IS NOT NULL) AS games_with_kda,
+            avg(cs/nullif(duration_min,0)) AS cs_min,
+            count(cs/nullif(duration_min,0)) AS games_with_cs_min,
+            avg(gold/nullif(duration_min,0)) AS gold_min,
+            count(gold/nullif(duration_min,0)) AS games_with_gold_min,
+            count(distinct champion) AS champion_pool
+        FROM games""", {'player': player, 'year': year})
 
 
 def filters(
