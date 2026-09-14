@@ -3,6 +3,12 @@
 -- (méta, builds, keystones) en sont des vues résumées ; les analyses ad hoc
 -- des coachs partent d'ici, jointes aux dimensions reference.dim_*_latest.
 
+{{ config(indexes=[
+    {'columns': ['puuid', 'game_started_at']},
+    {'columns': ['patch', 'puuid']},
+    {'columns': ['match_id', 'team_id']}
+]) }}
+
 select
     match_id || '|' || puuid as fact_participant_key,
     match_id,
