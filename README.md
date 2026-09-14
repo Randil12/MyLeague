@@ -8,11 +8,30 @@ Projet de fin d'études (RNCP 39586 — Ingénieur en science des données).
 
 ## Joueurs compétitifs actifs dans l'année
 
+**Analyse de lane soloQ** : Entraînement et Coaching individuel affichent Gold@15,
+GD@15, CSD@15, XPD@15, solo kills Riot et kills/morts sans assist avant 15 minutes,
+avec couverture et objectif de séance configurable (non enregistré).
+Voir [LANE_METRICS.md](LANE_METRICS.md) pour les définitions et limites.
+
 Entraînement et coaching soloQ utilisent uniquement **Mes joueurs à suivre**,
 via `/api/my-players` et la vue `gold.gold_coach_roster` créée au démarrage de
 `riot-live`. Aucun compte du ladder ni ancien joueur retiré n'est ajouté à cette
 liste automatiquement. Les nouveaux joueurs sans matchs restent sélectionnables.
 La comparaison coaching conserve le choix explicite d'une référence professionnelle.
+
+Le DAG `riot_coach_matches` collecte exclusivement ce roster à **HH:35 UTC**,
+indépendamment du snapshot Master+. Il récupère jusqu'aux **50 dernières parties
+soloQ terminées par joueur sur 30 jours**, avec timelines, bronze MinIO et
+chargement raw ciblé. Il déclenche ensuite le DAG existant `dbt_transform`
+(qui doit être activé) : les statistiques deviennent visibles après sa réussite.
+Activer `riot_coach_matches` dans Airflow et le déclencher manuellement pour le
+premier chargement sans attendre l'heure suivante. Aucun nouveau secret requis.
+Les parties déjà archivées sont réutilisées ; aucune avance du curseur historique
+général, aucun appel Riot depuis le navigateur. Un échec API/stockage arrête ce run
+et est inscrit dans `audit.pipeline_runs` ; la prochaine exécution retente.
+Le roster vide saute le déclenchement Gold. Ce chargement récent n'est pas un
+historique exhaustif : le backfill reste distinct. Les parties en cours apparaissent
+dans le direct ; leurs statistiques finales arrivent seulement après leur fin.
 
 Après déploiement de cette version, reconstruire `riot-live` et `web`, redémarrer
 Airflow et lancer `leaguepedia_ingestion` : le build Gold ajoute l'indicateur de

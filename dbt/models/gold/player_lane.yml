@@ -1,0 +1,9 @@
+version: 2
+models:
+  - name: gold_player_lane
+    description: "Lane à 15 min (tolérance ±5 s), adversaire au rôle déclaré ; kills sans assist enregistrée avant 15 min."
+    columns:
+      - name: match_id
+        tests: [not_null]
+      - name: puuid
+        tests: [not_null]

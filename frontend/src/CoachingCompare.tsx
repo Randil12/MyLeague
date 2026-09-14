@@ -13,7 +13,7 @@ function PlayerCard({year,revision}:{year:number;revision:number}) {
   const result=useData('/api/pro/coaching',{source,player,year},revision,valid);
   const accounts=useData('/api/pro/accounts',{player,year},revision,valid&&source==='pro');
   const row=result.rows[0];
-  const fields=[['Parties','games',''],['Winrate','winrate','games_with_result'],['KDA (ratio de totaux)','kda','games_with_kda'],['CS / minute','cs_min','games_with_cs_min'],['Or / minute','gold_min','games_with_gold_min'],['Champions différents','champion_pool','']];
+  const fields=[['Parties','games',''],['Winrate','winrate','games_with_result'],['KDA (ratio de totaux)','kda','games_with_kda'],['CS / minute','cs_min','games_with_cs_min'],['Dégâts champions / minute','damage_min','games_with_damage_min'],['Or / minute','gold_min','games_with_gold_min'],['Champions différents','champion_pool','']];
   return <section className="panel coaching-player"><div className="filters">
     <label className="field">Population<select value={source} onChange={e=>{setSource(e.target.value);setPlayer('');setSearch('');}}><option value="soloq">Mes joueurs · soloQ EUW</option><option value="pro">Joueurs pro · compétition</option></select></label>
     <label className="field">Rechercher<input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Pseudo du joueur"/></label>

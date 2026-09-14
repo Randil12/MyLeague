@@ -115,7 +115,7 @@ def init_raw_schema(conn) -> None:
     conn.commit()
 
 
-def select_matches_to_load(conn, batch_limit: int) -> list[dict[str, Any]]:
+def select_matches_to_load(conn, batch_limit: int, match_ids: list[str] | None = None) -> list[dict[str, Any]]:
     """Matchs ingérés avec succès en bronze mais pas encore chargés dans raw.
 
     Le tier du joueur source (audit.riot_tracked_players) est propagé pour
@@ -131,10 +131,11 @@ def select_matches_to_load(conn, batch_limit: int) -> list[dict[str, Any]]:
             WHERE m.region = %s
               AND m.status = 'success'
               AND r.match_id IS NULL
+              AND (%s::text[] IS NULL OR m.match_id = ANY(%s::text[]))
             ORDER BY m.loaded_at ASC NULLS LAST
             LIMIT %s
             """,
-            (REGION, batch_limit),
+            (REGION, match_ids, match_ids, batch_limit),
         )
         return [
             {"match_id": row[0], "source_puuid": row[1], "source_tier": row[2], "bronze_uri": row[3]}
@@ -142,7 +143,7 @@ def select_matches_to_load(conn, batch_limit: int) -> list[dict[str, Any]]:
         ]
 
 
-def select_timelines_to_load(conn, batch_limit: int) -> list[str]:
+def select_timelines_to_load(conn, batch_limit: int, match_ids: list[str] | None = None) -> list[str]:
     """Timelines réussies en bronze mais pas encore chargées dans raw."""
     with conn.cursor() as cur:
         cur.execute(
@@ -155,10 +156,11 @@ def select_timelines_to_load(conn, batch_limit: int) -> list[str]:
             WHERE m.region = %s
               AND m.timeline_status = 'success'
               AND t.match_id IS NULL
+              AND (%s::text[] IS NULL OR m.match_id = ANY(%s::text[]))
             ORDER BY m.updated_at ASC
             LIMIT %s
             """,
-            (REGION, batch_limit),
+            (REGION, match_ids, match_ids, batch_limit),
         )
         return [{"match_id": row[0], "timeline_uri": row[1]} for row in cur.fetchall()]
 
@@ -225,7 +227,8 @@ def insert_timeline(conn, match_id: str, payload: dict[str, Any]) -> None:
         )
 
 
-def run(raw_dir: str | Path = DEFAULT_RAW_DIR, batch_limit: int = 1000) -> dict[str, Any]:
+def run(raw_dir: str | Path = DEFAULT_RAW_DIR, batch_limit: int = 1000,
+        match_ids: list[str] | None = None) -> dict[str, Any]:
     raw_path = Path(raw_dir)
     conn = get_gold_conn()
     loaded = 0
@@ -245,7 +248,7 @@ def run(raw_dir: str | Path = DEFAULT_RAW_DIR, batch_limit: int = 1000) -> dict[
 
     try:
         init_raw_schema(conn)
-        candidates = select_matches_to_load(conn, batch_limit)
+        candidates = select_matches_to_load(conn, batch_limit, match_ids)
 
         for candidate in candidates:
             match_id = candidate["match_id"]
@@ -282,7 +285,7 @@ def run(raw_dir: str | Path = DEFAULT_RAW_DIR, batch_limit: int = 1000) -> dict[
             except Exception as exc:  # noqa: BLE001 - keep warehouse load resilient per match.
                 errors.append({"match_id": match_id, "error": str(exc)})
 
-        timeline_candidates = select_timelines_to_load(conn, batch_limit)
+        timeline_candidates = select_timelines_to_load(conn, batch_limit, match_ids)
         for candidate in timeline_candidates:
             match_id = candidate["match_id"]
             try:

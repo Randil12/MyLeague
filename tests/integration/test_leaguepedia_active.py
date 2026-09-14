@@ -85,10 +85,14 @@ def test_annual_player_pipeline(infrastructure, monkeypatch, tmp_path):
             pro=next(r for r in result.json() if r['player_page']=='CI Pro')
             assert pro['games']==2 and float(pro['avg_gold'])==12000
             assert float(pro['gold_min'])==400 and pro['games_with_gold_min']==2
+            assert float(pro['damage_min'])==600 and pro['games_with_damage_min']==2
+            assert abs(float(pro['cs_min'])-200/30)<0.00001
             empty=next(r for r in result.json() if r['player_page']=='CI Missing Stats')
             assert empty['avg_gold'] is None and empty['games_with_gold']==0
+            assert empty['damage_min'] is None and empty['games_with_damage_min']==0
             history=client.get('/api/pro/history',params=params)
             assert history.status_code==200
+            assert next(r for r in history.json() if r['player_page']=='CI Pro')['damage_min']==600
             assert any(r['items']=='Item A;Item B' for r in history.json())
             assert next(r for r in history.json() if r['player_page']=='CI Pro')['equipment_fields_collected'] is True
             assert next(r for r in history.json() if r['player_page']=='CI Missing Stats')['equipment_fields_collected'] is False
@@ -98,6 +102,7 @@ def test_annual_player_pipeline(infrastructure, monkeypatch, tmp_path):
             assert coach.status_code == 200
             assert coach.json()[0]['games'] == 2
             assert float(coach.json()[0]['gold_min']) == 400
+            assert float(coach.json()[0]['damage_min']) == 600
             accounts = client.get('/api/pro/accounts', params={'player':'CI Pro','year':2026})
             assert accounts.status_code == 200
             assert accounts.json()[0]['reported_accounts'] == 'Example#EUW'

@@ -8,6 +8,13 @@ champion et patch source Leaguepedia. Les matchs soloQ ne sont jamais joints.
 
 Les valeurs disponibles (winrate, KDA, CS, or, dégâts, vision et pool de champions)
 sont comparées sur les participations filtrées, avec les effectifs renseignés.
+CS/min et dégâts aux champions/min sont affichés dans la comparaison pro,
+l'historique par partie et la comparaison coaching. Ils utilisent les statistiques
+finales divisées par la durée en minutes ; les moyennes sont des moyennes de ratios
+par partie. Une durée ou des dégâts absents ne sont jamais remplacés par zéro.
+Les calculs API utilisent les colonnes Gold déjà présentes : reconstruire `web`
+suffit pour l'affichage ; les anciennes collectes incomplètes nécessitent une
+relecture par `leaguepedia_ingestion`. Gold@15 et solo kills pro restent indisponibles.
 Les moyennes ignorent les données manquantes ; zéro réel n'est pas remplacé par
 une absence. Le KDA est un ratio de sommes sur les lignes complètes, NULL sans
 mort. Les moyennes par minute sont des moyennes de ratios par match, uniquement
