@@ -29,7 +29,7 @@ def test_annual_player_pipeline(infrastructure, monkeypatch, tmp_path):
         day = lower[:10]
         return [{"GameId": f"CI-LP-{day}", "Patch": "26.1", "DateTime_UTC": lower,
                  "Tournament": "CI Cup", "OverviewPage": "CI/2026", "Team1": "A",
-                 "Team2": "B", "Gamelength_Number":"30",
+                 "Team2": "B", "Gamelength_Number":"30", "Team1Picks":"Azir", "Team2Picks":"Ornn",
                  "WinTeam": "A" if day.endswith("01") else "B"}]
 
     def players(client, lower, **kwargs):
@@ -51,7 +51,7 @@ def test_annual_player_pipeline(infrastructure, monkeypatch, tmp_path):
     objects = s3.list_objects_v2(Bucket="ci-live", Prefix="bronze/leaguepedia/scoreboard_players/")
     assert objects["KeyCount"] >= 2
     subprocess.run([
-        "dbt", "build", "--select", "tag:leaguepedia_active", "--indirect-selection", "cautious",
+        "dbt", "build", "--select", "tag:leaguepedia_active", "+gold_pro_champion_draft_by_patch", "--indirect-selection", "cautious",
         "--project-dir", str(ROOT / "dbt"), "--profiles-dir", str(ROOT / "dbt/profiles"),
         "--target-path", str(tmp_path / "target"), "--log-path", str(tmp_path / "logs"),
     ], check=True, timeout=180, cwd=ROOT)
@@ -70,6 +70,14 @@ def test_annual_player_pipeline(infrastructure, monkeypatch, tmp_path):
     db.engine.cache_clear()
     try:
         with TestClient(app) as client:
+            patches=client.get('/api/pro/draft/patches')
+            assert patches.status_code == 200 and {'patch':'16.1'} in patches.json()
+            draft=client.get('/api/pro/draft', params={'patch':'16.1'})
+            assert draft.status_code == 200 and draft.json()
+            group=client.get('/api/pro/compare', params={'year':2026,'selected_players':['CI Pro','CI Missing Stats']})
+            assert group.status_code == 200 and len(group.json()) == 2
+            role=client.get('/api/pro/players', params={'year':2026,'role':'Mid'})
+            assert role.status_code == 200 and [p['player_page'] for p in role.json()] == ['CI Pro']
             params={'year':2026,'player_a':'CI Pro','player_b':'CI Missing Stats','region':'Europe'}
             result=client.get('/api/pro/compare',params=params)
             assert result.status_code==200 and len(result.json())==2

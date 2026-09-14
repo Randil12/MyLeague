@@ -8,8 +8,14 @@ Projet de fin d'études (RNCP 39586 — Ingénieur en science des données).
 
 ## Joueurs compétitifs actifs dans l'année
 
-L'espace **Comparaison pro** permet de sélectionner deux joueurs, une année et
-des filtres région/tournoi/rôle/champion/patch, avec historique items/runes.
+L'espace **Joueurs pro** présente un annuaire paginé (20 joueurs par page),
+ouvert par défaut sur l'année courante. Les filtres région/tournoi/rôle/champion/patch
+s'appliquent à la liste et à la comparaison de 2 à 5 joueurs, avec historique items/runes.
+Changer les filtres efface la sélection ; rechercher ou changer de page la conserve.
+Le classement **Top 1 000 EUW** inclut Challenger, Grandmaster et Master, triés par LP,
+avec 50 comptes par page et résolution progressive des pseudos (300 par cycle maximum).
+Les compositions soloQ affichent par défaut les équipes observées au moins une fois,
+triées par volume : les très petits échantillons ne prouvent pas leur efficacité.
 Gold@15 reste indisponible faute de champ confirmé dans la source collectée.
 Voir [PRO_COMPARISON.md](PRO_COMPARISON.md) pour le déploiement et les limites.
 

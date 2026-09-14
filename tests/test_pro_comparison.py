@@ -28,6 +28,24 @@ def test_pro_endpoints_validate_and_bind_filters(monkeypatch):
         assert 'avg(gold)' in sql and 'gold_at_15' not in sql
 
 
+def test_multi_player_selection_and_role_filter(monkeypatch):
+    query = MagicMock(return_value=[])
+    monkeypatch.setattr(db, 'query', query)
+    with TestClient(app) as client:
+        for endpoint in ['compare', 'history']:
+            for players in [['A', 'B'], ['A', 'B', 'C', 'D', 'E']]:
+                response = client.get(f'/api/pro/{endpoint}', params={'year': 2026, 'selected_players': players, 'role': 'Top'})
+                assert response.status_code == 200
+                sql, params = query.call_args.args
+                assert params['selected_players'] == players
+                assert params['role'] == 'Top'
+                assert 'ANY(CAST(:selected_players AS text[]))' in sql
+            for players in [['A'], ['A', 'A'], ['A', ''], ['A', 'B', 'C', 'D', 'E', 'F']]:
+                assert client.get(f'/api/pro/{endpoint}', params={'year': 2026, 'selected_players': players}).status_code == 422
+        assert client.get('/api/pro/players', params={'year': 2026, 'role': 'Top'}).status_code == 200
+        assert query.call_args.args[1]['role'] == 'Top'
+
+
 def test_verified_extra_scoreboard_fields(monkeypatch):
     query=MagicMock(return_value=[])
     monkeypatch.setattr(cargo.time, 'sleep', lambda _:None)

@@ -24,8 +24,8 @@ def test_new_readonly_routes_and_roster_validation(monkeypatch):
 def test_training_no_longer_requires_academy_masteries():
     assert 'gold.fact_match_participant' in queries.DATASETS['training']
     assert 'puuid = :player' in queries.DATASETS['history']
-    assert "LIMIT 300" in queries.LEADERBOARD
-    assert "tier='CHALLENGER'" in queries.LEADERBOARD
+    assert "LIMIT 1000" in queries.LEADERBOARD
+    assert "tier IN ('CHALLENGER','GRANDMASTER','MASTER')" in queries.LEADERBOARD
 
 
 def test_riot_names_persist_full_identity(monkeypatch):
