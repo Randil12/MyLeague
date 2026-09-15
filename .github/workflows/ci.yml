@@ -64,8 +64,14 @@ jobs:
         run: |
           cp .env.example .env
           docker compose --profile spark config --quiet
+          docker compose --profile monitoring config --quiet
           docker compose -f compose.ci.yml config --quiet
           bash -n scripts/deploy-vps.sh
+      - name: Validate monitoring configuration
+        run: |
+          docker run --rm --entrypoint /bin/promtool \
+            -v "$PWD/monitoring:/etc/prometheus:ro" \
+            prom/prometheus:v3.2.1 check config /etc/prometheus/prometheus.yml
   integration:
     name: Integration PostgreSQL + MinIO + dbt + Spark
     runs-on: ubuntu-24.04

@@ -427,6 +427,69 @@
     networks:
       - warehouse
 
+  prometheus:
+    profiles: ["monitoring"]
+    image: prom/prometheus:v3.2.1
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=7d
+      - --storage.tsdb.retention.size=1GB
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./monitoring/alerts.yml:/etc/prometheus/alerts.yml:ro
+      - prometheus_data:/prometheus
+    restart: unless-stopped
+    mem_limit: 512m
+    cpus: 0.5
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    networks: [monitoring]
+
+  node-exporter:
+    # Linux VPS only. Read the host, not the container filesystem/CPU namespace.
+    profiles: ["monitoring"]
+    image: prom/node-exporter:v1.9.0
+    pid: host
+    command:
+      - --path.rootfs=/host
+      - --collector.filesystem.mount-points-exclude=^/(dev|proc|sys|run|var/lib/docker/.+)($$|/)
+    volumes:
+      - type: bind
+        source: /
+        target: /host
+        read_only: true
+        bind:
+          propagation: rslave
+    read_only: true
+    restart: unless-stopped
+    mem_limit: 128m
+    cpus: 0.25
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    networks: [monitoring]
+
+  airflow-monitor-init:
+    profiles: ["monitoring"]
+    image: postgres:15
+    environment:
+      PGPASSWORD: airflow
+      MONITOR_PASSWORD: ${DATA_ANALYST_PASSWORD:?Set DATA_ANALYST_PASSWORD}
+    volumes:
+      - ./monitoring/airflow.sql:/init/airflow.sql:ro
+    entrypoint: /bin/sh
+    command:
+      - -c
+      - |
+        set -eu
+        psql -h postgres -U airflow -d airflow -v ON_ERROR_STOP=1 \
+          --set=monitor_password="$${MONITOR_PASSWORD}" -f /init/airflow.sql
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+    networks: [airflow_control]
+
   grafana:
     image: grafana/grafana-oss:11.5.2
     container_name: myleague-grafana
@@ -447,14 +510,19 @@
     networks:
       - warehouse
       - local_ui
+      - monitoring
+      - airflow_control
 
 volumes:
+  prometheus_data:
   airflow_postgres_data:
   gold_postgres_data:
   minio_data:
   grafana_data:
 
 networks:
+  monitoring:
+    internal: true
   spark_cluster:
     internal: true
   local_ui:
