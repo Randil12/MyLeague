@@ -5,13 +5,15 @@ from jinja2 import Environment
 
 
 def evaluate(conn, *, duration=1200, timestamp=900300, missing=False, duplicate_role=False, gap=False,
-             damage=15000, cs=150, full=False):
+             damage=15000, cs=150, full=False, ward_values=None):
     model=Path(__file__).resolve().parents[2]/'dbt/models/gold/gold_player_lane.sql'
     sql=Environment().from_string(model.read_text(encoding='utf-8')).render(
         config=lambda **kw:'', ref=lambda _: 'fixture_facts',
         source=lambda _, table: 'fixture_matches' if table=='riot_matches' else 'fixture_timelines')
     participants=[{'puuid':'p1','participantId':1,'challenges':{'soloKills':3}},
                   {'puuid':'p2','participantId':2}]
+    if ward_values is not None:
+        participants[0].update(ward_values)
     frames=[{'timestamp':i*60000,'events':[]} for i in range(16)]
     frames[-1]['timestamp']=timestamp
     frames[-1]['participantFrames']={'1':{'totalGold':6000,'minionsKilled':100,'jungleMinionsKilled':5,'xp':7000},
@@ -55,6 +57,18 @@ def test_lane_exact_metrics(infrastructure):
     assert rows[0]['solo_kills']==3 and rows[1]['solo_kills'] is None
     assert rows[0]['solo_kills_15']==1 and rows[1]['solo_deaths_15']==1
     assert rows[0]['solo_deaths_15']==0 and rows[1]['gd_15']==-1000
+
+
+def test_ward_metrics_preserve_missing_and_zero_without_timeline(infrastructure):
+    conn = infrastructure[0]
+    fields = ('wards_placed', 'control_wards_placed', 'control_wards_bought')
+    source = ('wardsPlaced', 'detectorWardsPlaced', 'visionWardsBoughtInGame')
+    a, b = evaluate(conn, missing=True, ward_values=dict(zip(source, (12, 3, 5))))
+    assert tuple(a[k] for k in fields) == (12, 3, 5)
+    assert all(b[k] is None for k in fields)
+    for value in (0, None, -1, 'invalid'):
+        a = evaluate(conn, missing=True, ward_values=dict.fromkeys(source, value))[0]
+        assert all(a[k] == (0 if value == 0 else None) for k in fields)
 
 
 def test_rates_use_whole_match_and_do_not_require_timeline(infrastructure):
