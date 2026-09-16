@@ -1,7 +1,8 @@
 """Real PostgreSQL persistence; only runs on the isolated CI infrastructure."""
-import pytest
 import subprocess
 from pathlib import Path
+
+import pytest
 
 from jobs.riot.training import init_training, request
 

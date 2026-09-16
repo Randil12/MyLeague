@@ -3,8 +3,7 @@ from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
-from backend import db
-from backend import pro_draft
+from backend import db, pro_draft
 
 router = APIRouter(prefix="/api/pro")
 TABLE = "gold.gold_pro_player_games"

@@ -4,7 +4,8 @@ from datetime import timedelta
 from pathlib import Path
 from uuid import uuid4
 
-from jobs.riot import euw_ingest as ingest, load_raw
+from jobs.riot import euw_ingest as ingest
+from jobs.riot import load_raw
 from jobs.riot.live_roster import init_roster
 
 

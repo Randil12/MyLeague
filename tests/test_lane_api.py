@@ -1,5 +1,7 @@
 from unittest.mock import MagicMock
+
 from fastapi.testclient import TestClient
+
 from backend import db
 from backend.main import app
 

@@ -1,8 +1,8 @@
 """Coach roster -> Match-V5 + timelines -> bronze -> raw -> existing Gold DAG."""
 from datetime import timedelta
 
-from airflow.sdk import dag, task
 from airflow.providers.standard.operators.trigger_dagrun import TriggerDagRunOperator
+from airflow.sdk import dag, task
 from pendulum import datetime
 
 
@@ -14,6 +14,7 @@ def riot_coach_matches():
     @task(execution_timeout=timedelta(minutes=40))
     def collect_roster_matches():
         from airflow.exceptions import AirflowSkipException
+
         from jobs.riot.coach_matches import run
 
         result = run(raw_dir='/opt/airflow/data/bronze/riot')
