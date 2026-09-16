@@ -28,3 +28,20 @@ def test_grafana_and_app_use_same_patch_count_source():
     assert len(counters)==1
     assert 'gold.gold_patch_summary' in counters[0]
     assert 'gold.gold_patch_summary' in queries.PATCHES
+
+
+def test_history_pagination_validation_and_offset(monkeypatch):
+    query = MagicMock(return_value=[])
+    monkeypatch.setattr(db, 'query', query)
+    with TestClient(app) as client:
+        for page, offset in [(1, 0), (2, 20), (4, 60)]:
+            response = client.get('/api/data/history', params={
+                'patch': '', 'player': 'test-player', 'page': page})
+            assert response.status_code == 200
+            assert query.call_args.args[1]['offset'] == offset
+            assert query.call_args.args[1]['patch'] == ''
+        for page in [0, -1, 100001, 'bad']:
+            assert client.get('/api/data/history', params={
+                'patch': '', 'player': 'test-player', 'page': page}).status_code == 422
+    assert 'LIMIT 21 OFFSET :offset' in queries.DATASETS['history']
+    assert 'game_started_at DESC, match_id DESC' in queries.DATASETS['history']
