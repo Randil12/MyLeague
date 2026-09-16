@@ -9,9 +9,9 @@ from fastapi.staticfiles import StaticFiles
 from sqlalchemy.exc import SQLAlchemyError
 
 from backend import db, queries
+from backend.lane import router as lane_router
 from backend.live_roster import router as roster_router
 from backend.pro import router as pro_router
-from backend.lane import router as lane_router
 from backend.training import router as training_router
 
 app = FastAPI(title="MyLeague", docs_url=None, redoc_url=None, openapi_url=None)
@@ -82,7 +82,7 @@ def leaderboard():
 
 
 @app.get("/api/data/{dataset}")
-def dataset(dataset: str, patch: Annotated[str, Query(min_length=1, max_length=32)],
+def dataset(dataset: str, patch: Annotated[str, Query(max_length=32)],
             player: Annotated[str, Query(max_length=256)] = "",
             champion: Annotated[str, Query(max_length=100)] = "",
             opponent: Annotated[str, Query(max_length=100)] = "",
@@ -90,6 +90,8 @@ def dataset(dataset: str, patch: Annotated[str, Query(min_length=1, max_length=3
             minimum: Annotated[int, Query(ge=1, le=10000)] = 10):
     if dataset not in queries.DATASETS:
         raise HTTPException(404, "Analyse inconnue")
+    if not patch and dataset not in {"training", "player_summary", "player_matchups", "history", "progress", "durations"}:
+        raise HTTPException(422, "Choisis un patch pour cette analyse")
     if dataset == 'matchups' and opponent and champion == opponent:
         raise HTTPException(422, "Choisis deux champions distincts")
     if dataset in {"training", "player_summary", "player_matchups", "history", "progress", "durations"}:
