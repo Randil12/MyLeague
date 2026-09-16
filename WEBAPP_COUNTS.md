@@ -18,6 +18,11 @@ le patch sélectionné : ce n'était pas la preuve de parties manquantes.
 ## Comportement actuel
 
 - Entraînement et Coaching individuel proposent **Tous les patches** par défaut.
+- Changer de joueur ou d'écran réinitialise le filtre à tous les patches.
+  Un filtre explicite ne s'applique qu'au joueur et à l'écran qui l'ont sélectionné.
+- Vérification en lecture seule : Tacos38w a 48 lignes de statistiques, dont 37
+  sur 16.17 et 11 sur 16.18. Parmi les 48, 47 ont un GD@15 renseigné.
+  Le repère de version du frontend est `player-scope-v3`.
 - Le nombre du sélecteur est explicitement un total ; le filtre patch détermine les analyses.
 - Draft et Coaching collectif conservent leur filtre de patch obligatoire.
 - Le diagnostic de lane n'est plus limité aux 200 dernières parties. Ses moyennes
