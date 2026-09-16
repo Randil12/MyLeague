@@ -5,7 +5,13 @@
 with participants as (
     select m.match_id, p->>'puuid' as puuid, p->>'participantId' as participant_id,
         case when p->'challenges'->>'soloKills' ~ '^[0-9]+$'
-             then (p->'challenges'->>'soloKills')::int end as solo_kills
+             then (p->'challenges'->>'soloKills')::int end as solo_kills,
+        case when p->>'wardsPlaced' ~ '^[0-9]+$'
+             then (p->>'wardsPlaced')::bigint end as wards_placed,
+        case when p->>'detectorWardsPlaced' ~ '^[0-9]+$'
+             then (p->>'detectorWardsPlaced')::bigint end as control_wards_placed,
+        case when p->>'visionWardsBoughtInGame' ~ '^[0-9]+$'
+             then (p->>'visionWardsBoughtInGame')::bigint end as control_wards_bought
     from {{ source('raw','riot_matches') }} m
     cross join lateral jsonb_array_elements(m.payload->'info'->'participants') p
 ), frames as (
@@ -55,6 +61,7 @@ with participants as (
     ) counts group by match_id, participant_id
 ), base as (
     select f.*, p.participant_id, p.solo_kills,
+        p.wards_placed, p.control_wards_placed, p.control_wards_bought,
         c.full_events_contiguous and f.game_duration_s>0
             and c.last_frame_ms>=f.game_duration_s*1000-5000 as full_timeline_available,
         case when f.game_duration_s>=900 then o.ts end as observed_at_ms,
@@ -79,6 +86,7 @@ with participants as (
 )
 select a.match_id, a.puuid, a.champion_name, a.team_position as role, a.patch,
     a.game_started_at, a.win, a.solo_kills, a.solo_kills_15, a.solo_deaths_15,
+    a.wards_placed, a.control_wards_placed, a.control_wards_bought,
     a.observed_at_ms, a.gold_15, a.cs_15, a.xp_15,
     case when a.game_duration_s>0 and a.damage_to_champions>=0
          then a.damage_to_champions::numeric*60/a.game_duration_s end as damage_min,

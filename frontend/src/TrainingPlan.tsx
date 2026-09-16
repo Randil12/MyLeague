@@ -35,7 +35,7 @@ export default function TrainingPlan({player,revision}:{player:string;revision:n
     {(error||result.error)&&<p role="alert" className="error-banner">{error||result.error}</p>}
     {result.loading?<p role="status">Chargement du plan…</p>:!result.error&&!result.rows.length?<p>Aucun objectif enregistré. Choisis un axe de travail ci-dessus.</p>:null}
     {result.rows.map(goal=><Goal key={String(goal.id)} goal={goal} busy={busy} mutate={mutate}/>)}
-    <p className="note">Progression recalculée sur les parties collectées de la période après le build Gold. Les valeurs absentes sont exclues, pas remplacées par zéro. « Terminé » est une décision du coach, pas une validation automatique du niveau du joueur.</p>
+    <p className="note">Progression sur les parties renseignées de la période. Objectifs clôturés par le coach.</p>
   </section>;
 }
 
