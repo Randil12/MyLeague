@@ -201,9 +201,11 @@ WITH shared AS (
         sum(assists) AS assists, round(avg(game_duration_s)/60.0,1) AS duration
  FROM gold.fact_match_participant WHERE puuid = ANY(:roster)
  GROUP BY match_id, team_id, patch
- HAVING count(DISTINCT puuid) = 5 AND count(*) = 5
+ HAVING count(DISTINCT puuid) = cardinality(CAST(:roster AS text[]))
+    AND count(*) = cardinality(CAST(:roster AS text[]))
 )
-SELECT * FROM shared WHERE patch = :patch ORDER BY played_at DESC LIMIT 100
+SELECT * FROM shared WHERE (:patch='' OR patch = :patch)
+ORDER BY played_at DESC, match_id DESC LIMIT 100
 """
 
 TEAM_SUMMARY = """
@@ -217,7 +219,7 @@ SELECT coalesce(nullif(t.riot_summoner_name,''), n.riot_id, n.display_name,
 FROM selected s
 LEFT JOIN audit.riot_tracked_players t USING(puuid)
 LEFT JOIN gold.gold_player_names n USING(puuid)
-LEFT JOIN gold.fact_match_participant f ON f.puuid=s.puuid AND f.patch=:patch
+LEFT JOIN gold.fact_match_participant f ON f.puuid=s.puuid AND (:patch='' OR f.patch=:patch)
 GROUP BY s.puuid, t.riot_summoner_name, n.riot_id, n.display_name
 ORDER BY games DESC, player_name
 """

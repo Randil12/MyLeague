@@ -24,7 +24,10 @@ le patch sélectionné : ce n'était pas la preuve de parties manquantes.
   sur 16.17 et 11 sur 16.18. Parmi les 48, 47 ont un GD@15 renseigné.
   Le repère de version du frontend est `player-scope-v3`.
 - Le nombre du sélecteur est explicitement un total ; le filtre patch détermine les analyses.
-- Draft et Coaching collectif conservent leur filtre de patch obligatoire.
+- Draft conserve son filtre de patch obligatoire. Coaching collectif propose tous
+  les patches par défaut : suivi individuel de 1 à 5 joueurs, parties communes
+  dès 2 joueurs. Tous les sélectionnés doivent être dans la même équipe ; les
+  kills/morts affichés sont ceux du groupe, pas ceux de l'équipe entière.
 - Le diagnostic de lane n'est plus limité aux 200 dernières parties. Ses moyennes
   portent sur toutes les lignes disponibles pour le joueur et les filtres sélectionnés.
   L'affichage est paginé par 50 lignes côté navigateur, sans limiter les calculs.

@@ -54,7 +54,7 @@ def test_team_requires_exact_five_and_bound_roster(client, monkeypatch):
     response = client.get("/api/team", params=[("patch", "16.1"), *[("roster", str(i)) for i in range(5)]])
     assert response.status_code == 200
     assert calls[0]["roster"] == [str(i) for i in range(5)]
-    assert "count(DISTINCT puuid) = 5" in queries.TEAM
+    assert "count(DISTINCT puuid) = cardinality(CAST(:roster AS text[]))" in queries.TEAM
     assert "match_id, team_id, patch" in queries.TEAM
 
 
