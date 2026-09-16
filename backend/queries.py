@@ -86,7 +86,7 @@ PAIRED = """
 WITH roles AS (
  SELECT *, count(*) OVER (PARTITION BY match_id, team_id, team_position) AS role_count
  FROM gold.fact_match_participant
- WHERE patch = :patch AND team_position IN ('TOP','JUNGLE','MIDDLE','BOTTOM','UTILITY')
+ WHERE (:patch = '' OR patch = :patch) AND team_position IN ('TOP','JUNGLE','MIDDLE','BOTTOM','UTILITY')
 ), paired AS (
  SELECT a.*, b.champion_name AS opponent,
         a.gold_earned - b.gold_earned AS gold_delta,
@@ -152,7 +152,7 @@ DATASETS = {
         max(f.game_started_at) AS last_played_at
         FROM gold.fact_match_participant f
         LEFT JOIN gold.gold_player_lane l ON l.match_id=f.match_id AND l.puuid=f.puuid
-        WHERE f.patch=:patch AND f.puuid=:player
+        WHERE (:patch='' OR f.patch=:patch) AND f.puuid=:player
         GROUP BY f.champion_name, team_position
         ORDER BY count(*) DESC, f.champion_name LIMIT 200""",
     "player_matchups": PAIRED + """SELECT champion_name, opponent, team_position AS role,
@@ -166,11 +166,11 @@ DATASETS = {
         round(avg(total_cs*60.0/nullif(game_duration_s,0)),2) AS cs_min,
         round(avg(damage_to_champions*60.0/nullif(game_duration_s,0)),0) AS damage_min,
         round(avg(vision_score*60.0/nullif(game_duration_s,0)),2) AS vision_min
-        FROM gold.fact_match_participant WHERE patch = :patch AND puuid = :player""",
+        FROM gold.fact_match_participant WHERE (:patch='' OR patch = :patch) AND puuid = :player""",
     "history": """SELECT match_id, champion_name, team_position AS role, win, kills, deaths,
         assists, round(total_cs*60.0/nullif(game_duration_s,0),2) AS cs_min,
         round(game_duration_s/60.0,1) AS duration, game_started_at
-        FROM gold.fact_match_participant WHERE patch = :patch AND puuid = :player
+        FROM gold.fact_match_participant WHERE (:patch='' OR patch = :patch) AND puuid = :player
         ORDER BY game_started_at DESC LIMIT 50""",
     "progress": """SELECT patch, count(*) AS games, avg(win::int) AS winrate,
         round(sum(kills+assists)::numeric/nullif(sum(deaths),0),2) AS kda,
@@ -180,7 +180,7 @@ DATASETS = {
     "durations": """SELECT CASE WHEN game_duration_s < 1500 THEN '< 25 min'
         WHEN game_duration_s < 2100 THEN '25–35 min' ELSE '≥ 35 min' END AS duration,
         count(*) AS games, avg(win::int) AS winrate
-        FROM gold.fact_match_participant WHERE puuid = :player AND patch = :patch
+        FROM gold.fact_match_participant WHERE puuid = :player AND (:patch='' OR patch = :patch)
         GROUP BY 1 ORDER BY 1""",
     "evolution": """SELECT champion_name, previous_patch, picks, previous_picks,
         winrate, winrate_delta, trend, official_change

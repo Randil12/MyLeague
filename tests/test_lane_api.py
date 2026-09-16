@@ -14,4 +14,5 @@ def test_lane_requires_player_patch_and_binds_values(monkeypatch):
         assert client.get('/api/lane',params=params).status_code == 200
         sql, bound=query.call_args.args
         assert bound==params and params['player'] not in sql
-        assert 'gold.gold_coach_roster' in sql and 'LIMIT 200' in sql
+        assert 'gold.gold_coach_roster' in sql and 'LIMIT 200' not in sql
+        assert client.get('/api/lane',params={**params,'patch':''}).status_code==200
