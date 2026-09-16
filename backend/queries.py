@@ -171,7 +171,7 @@ DATASETS = {
         assists, round(total_cs*60.0/nullif(game_duration_s,0),2) AS cs_min,
         round(game_duration_s/60.0,1) AS duration, game_started_at
         FROM gold.fact_match_participant WHERE (:patch='' OR patch = :patch) AND puuid = :player
-        ORDER BY game_started_at DESC LIMIT 50""",
+        ORDER BY game_started_at DESC, match_id DESC LIMIT 21 OFFSET :offset""",
     "progress": """SELECT patch, count(*) AS games, avg(win::int) AS winrate,
         round(sum(kills+assists)::numeric/nullif(sum(deaths),0),2) AS kda,
         round(avg(total_cs*60.0/nullif(game_duration_s,0)),2) AS cs_min
