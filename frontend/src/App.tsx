@@ -98,9 +98,23 @@ function Individual({patch,player,revision}:{patch:string;player:string;revision
   return <><LaneAnalysis key={`${player}-${patch}`} player={player} patch={patch} revision={revision}/><div className="spacer"/><State result={result}>{r&&<Stats items={[["Matchs",num(r.games),patch?`Patch ${patch}`:'Tous les patches collectés'],['Winrate',percent(r.winrate),'Résultat final du match'],['KDA',num(r.kda,2),'(Kills + assists) / morts'],['CS / min',num(r.cs_min,2),'Moyenne par match']]}/>}</State><DataTable dataset="progress" params={{patch,player}} revision={revision} enabled={Boolean(player)} title="Progression entre les patches" subtitle="Jusqu’à 24 patches collectés, indépendamment du patch sélectionné." columns={[{label:'Patch',key:'patch'},gamesCol,winCol,{label:'KDA',key:'kda',render:decimal},{label:'CS/min',key:'cs_min',render:decimal}]}/><div className="spacer"/><History key={JSON.stringify([player,patch,revision])} patch={patch} player={player} revision={revision}/><div className="spacer"/><DataTable dataset="durations" params={{patch,player}} revision={revision} enabled={Boolean(player)} title="Résultats selon la durée" columns={[{label:'Durée du match',key:'duration'},gamesCol,winCol]}/></>;
 }
 function Collective({patch,players,revision}:{patch:string;players:Result;revision:number}) {
-  const [chosenRoster,setRoster]=useState<string[]>([]);const roster=chosenRoster.filter(id=>players.rows.some(p=>p.puuid===id));const result=useData('/api/team',{patch,roster},revision,Boolean(patch&&roster.length===5));
+  const [chosenRoster,setRoster]=useState<string[]>([]);
+  const roster=chosenRoster.filter(id=>players.rows.some(p=>p.puuid===id));
+  const result=useData('/api/team',{patch,roster},revision,roster.length>=2&&roster.length<=5);
   const wins=result.rows.filter(r=>r.win).length;
-  return <><State result={players}><div className="roster"><div className="panel-head"><div><h2>Définir les cinq joueurs</h2><p>Sélection de cette session, non enregistrée. Seuls leurs matchs du même côté sont retenus.</p></div><span className="badge">{roster.length} / 5</span></div><div className="roster-list">{players.rows.map(p=><label key={String(p.puuid)}><input type="checkbox" checked={roster.includes(String(p.puuid))} disabled={roster.length===5&&!roster.includes(String(p.puuid))} onChange={e=>setRoster(e.target.checked?[...roster,String(p.puuid)]:roster.filter(v=>v!==p.puuid))}/>{String(p.player_name)}{p.tracking_source==='academy'&&<span className="badge">Academy</span>}</label>)}</div></div></State><div className="spacer"/>{roster.length!==5?<Empty title="Sélectionne cinq joueurs">Sélectionne cinq joueurs distincts pour rechercher leurs matchs communs.</Empty>:<State result={result}><TeamOverview patch={patch} roster={roster} revision={revision}/><Stats items={[["Matchs communs",num(result.rows.length),'100 derniers au maximum'],['Victoires',num(wins),'Même côté, mêmes cinq joueurs'],['Winrate',result.rows.length?percent(wins/result.rows.length):'—','Sur les matchs affichés'],['Périmètre','Solo queue','Pas de scrims ni de matchs privés']]}/><Table title="Matchs de ce collectif" subtitle="Parties SoloQ réunissant les cinq joueurs dans la même équipe." rows={result.rows} columns={[{label:'Match',key:'match_id'},{label:'Résultat',key:'win',render:v=><Badge value={v?'Victoire':'Défaite'}/>},{label:'Kills',key:'kills',render:numeric},{label:'Morts',key:'deaths',render:numeric},{label:'Durée',key:'duration',render:v=>`${num(v,1)} min`},{label:'Début',key:'played_at',render:when}]}/></State>}</>;
+  return <>
+    <State result={players}><div className="roster"><div className="panel-head"><div><h2>Choisir les joueurs du groupe</h2><p>De 1 à 5 joueurs · sélection non enregistrée.</p></div><span className="badge">{roster.length} / 5</span></div>
+      <div className="roster-list">{players.rows.map(p=><label key={String(p.puuid)}><input type="checkbox" checked={roster.includes(String(p.puuid))} disabled={roster.length===5&&!roster.includes(String(p.puuid))} onChange={e=>setRoster(e.target.checked?[...roster,String(p.puuid)]:roster.filter(v=>v!==p.puuid))}/>{String(p.player_name)}</label>)}</div>
+    </div></State><div className="spacer"/>
+    {!roster.length?<Empty title="Sélectionne les joueurs">Choisis au moins un joueur pour afficher ses statistiques.</Empty>:<TeamOverview patch={patch} roster={roster} revision={revision}/>}
+    <div className="spacer"/>
+    {roster.length<2?<Empty title="Parties communes">Sélectionne au moins deux joueurs pour rechercher leurs parties ensemble.</Empty>:<State result={result}>
+      {!result.rows.length?<Empty title="Aucune partie commune">Aucune partie collectée ne réunit tous les joueurs sélectionnés dans la même équipe sur ce périmètre.</Empty>:<>
+        <Stats items={[["Matchs communs",num(result.rows.length),'100 derniers au maximum'],['Victoires',num(wins),'Tous les joueurs sélectionnés, même équipe'],['Winrate',percent(wins/result.rows.length),'Sur les matchs affichés'],['Périmètre','Solo queue','Pas de scrims ni de matchs privés']]}/>
+        <Table title="Parties communes" subtitle="Tous les joueurs sélectionnés dans la même équipe. Kills et morts du groupe sélectionné uniquement." rows={result.rows} columns={[{label:'Match',key:'match_id'},{label:'Patch',key:'patch'},{label:'Résultat',key:'win',render:v=><Badge value={v?'Victoire':'Défaite'}/>},{label:'Kills du groupe',key:'kills',render:numeric},{label:'Morts du groupe',key:'deaths',render:numeric},{label:'Durée',key:'duration',render:v=>`${num(v,1)} min`},{label:'Début',key:'played_at',render:when}]}/>
+      </>}
+    </State>}
+  </>;
 }
 
 export default function App() {
@@ -109,7 +123,7 @@ export default function App() {
   const [section,setSection]=useState<Section>(fromHash);const [revision,setRevision]=useState(0);const [chosenPatch,setPatch]=useState('');const [chosenPlayer,setPlayer]=useState('');const [coachingTab,setCoachingTab]=useState('Individuel');
   const [draftSource,setDraftSource]=useState('SoloQ');
   const [playerPatch,setPlayerPatch]=useState({scope:'',patch:'__all__'});
-  const playerScope=section==='training'||(section==='coaching'&&coachingTab==='Individuel');
+  const playerScope=section==='training'||(section==='coaching'&&['Individuel','Collectif'].includes(coachingTab));
   const [patchRefresh,setPatchRefresh]=useState(0);
   useEffect(()=>{const refresh=()=>{if(document.visibilityState!=='hidden')setPatchRefresh(v=>v+1);};const timer=window.setInterval(refresh,60000);window.addEventListener('focus',refresh);return()=>{window.clearInterval(timer);window.removeEventListener('focus',refresh);};},[]);
   const isLive=(section==='draft'&&draftSource==='Pro')||section==='pro'||section==='leaderboard'||(section==='coaching'&&['En direct','Comparer'].includes(coachingTab));

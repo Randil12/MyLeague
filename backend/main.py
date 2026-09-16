@@ -116,18 +116,18 @@ def live_players():
 
 
 @app.get("/api/team")
-def team(patch: Annotated[str, Query(min_length=1, max_length=32)],
-         roster: Annotated[list[str], Query(min_length=5, max_length=5)]):
-    if len(set(roster)) != 5 or any(not p or len(p) > 256 for p in roster):
-        raise HTTPException(422, "Sélectionne cinq joueurs distincts")
+def team(patch: Annotated[str, Query(max_length=32)],
+         roster: Annotated[list[str], Query(min_length=2, max_length=5)]):
+    if len(set(roster)) != len(roster) or any(not p or len(p) > 256 for p in roster):
+        raise HTTPException(422, "Sélectionne de deux à cinq joueurs distincts")
     return db.query(queries.TEAM, {"patch": patch, "roster": roster})
 
 
 @app.get("/api/team/summary")
-def team_summary(patch: Annotated[str, Query(min_length=1, max_length=32)],
-                 roster: Annotated[list[str], Query(min_length=5, max_length=5)]):
-    if len(set(roster)) != 5 or any(not p or len(p) > 256 for p in roster):
-        raise HTTPException(422, "Sélectionne cinq joueurs distincts")
+def team_summary(patch: Annotated[str, Query(max_length=32)],
+                 roster: Annotated[list[str], Query(min_length=1, max_length=5)]):
+    if len(set(roster)) != len(roster) or any(not p or len(p) > 256 for p in roster):
+        raise HTTPException(422, "Sélectionne de un à cinq joueurs distincts")
     return db.query(queries.TEAM_SUMMARY, {"patch": patch, "roster": roster})
 
 

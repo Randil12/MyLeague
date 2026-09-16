@@ -17,13 +17,15 @@ def goal(**changes):
     ('ends_on','2028-01-01'), ('player',''),
 ])
 def test_reject_invalid_goals(field,value):
-    body=goal(); body[field]=value
+    body=goal()
+    body[field]=value
     with pytest.raises(ValueError):
         validate(body)
 
 
 def test_negative_deltas_allowed_but_negative_cs_rejected():
-    body=goal(); body['threshold']=-100
+    body=goal()
+    body['threshold']=-100
     assert validate(body)['threshold']==-100
     body['metric']='cs_min'
     with pytest.raises(ValueError):

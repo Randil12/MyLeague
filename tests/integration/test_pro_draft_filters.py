@@ -1,5 +1,6 @@
 """SELECT-only test of filtering, totals and role-less bans."""
 import re
+
 from backend import pro_draft
 
 

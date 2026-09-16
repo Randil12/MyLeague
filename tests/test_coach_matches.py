@@ -3,7 +3,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from jobs.riot import coach_matches as coach, load_raw
+from jobs.riot import coach_matches as coach
+from jobs.riot import load_raw
 
 
 @pytest.fixture

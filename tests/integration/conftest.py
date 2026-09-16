@@ -62,7 +62,7 @@ def infrastructure(tmp_path_factory):
             artifacts = tmp_path_factory.mktemp("dbt")
             # Partial build: only run tests whose parents are all selected.
             # Eager selection also picked a relationship to the unbuilt team-bans model.
-            subprocess.run(["dbt", "build", "--select", "+fact_match_participant", "gold_player_names",
+            subprocess.run(["dbt", "build", "--select", "+gold_player_lane", "gold_player_names",
                 "--indirect-selection", "cautious",
                 "--project-dir", str(ROOT/"dbt"), "--profiles-dir", str(ROOT/"dbt/profiles"),
                 "--target-path", str(artifacts/"target"), "--log-path", str(artifacts/"logs")],

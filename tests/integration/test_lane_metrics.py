@@ -1,6 +1,7 @@
 """Read-only SQL fixtures exercise the actual dbt model, without mutating tables."""
 import json
 from pathlib import Path
+
 from jinja2 import Environment
 
 
@@ -29,13 +30,15 @@ def evaluate(conn, *, duration=1200, timestamp=900300, missing=False, duplicate_
             {**kill,'timestamp':1100000,'killerId':2,'victimId':1},
             {**kill,'timestamp':1110000,'victimId':3}, # another opponent: exclude from pair
         ]
-    if gap: frames=frames[:3]+frames[-1:]
+    if gap:
+        frames=frames[:3]+frames[-1:]
     facts=[{'match_id':'m','puuid':'p1','champion_name':'Darius','team_id':100,'team_position':'TOP'},
            {'match_id':'m','puuid':'p2','champion_name':'Aatrox','team_id':200,'team_position':'TOP'}]
     if duplicate_role:
         participants.append({'puuid':'p3','participantId':3})
         facts.append({**facts[1],'puuid':'p3'})
-    for f in facts: f.update(patch='16.18',game_started_at='2026-09-14T00:00:00Z',game_duration_s=duration,win=f['team_id']==100,
+    for f in facts:
+        f.update(patch='16.18',game_started_at='2026-09-14T00:00:00Z',game_duration_s=duration,win=f['team_id']==100,
                             damage_to_champions=damage,total_cs=cs)
     fixture="""WITH fixture_matches AS (SELECT 'm'::text AS match_id, %s::jsonb AS payload),
         fixture_timelines AS (SELECT 'm'::text AS match_id, %s::jsonb AS payload),
